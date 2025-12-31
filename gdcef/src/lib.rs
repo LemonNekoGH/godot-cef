@@ -13,8 +13,8 @@ use godot::classes::image::Format as ImageFormat;
 use godot::classes::notify::ControlNotification;
 use godot::classes::texture_rect::ExpandMode;
 use godot::classes::{
-    ITextureRect, Image, ImageTexture, InputEvent, InputEventMouseButton, InputEventMouseMotion,
-    TextureRect,
+    ITextureRect, Image, ImageTexture, InputEvent, InputEventKey, InputEventMouseButton,
+    InputEventMouseMotion, TextureRect,
 };
 use godot::init::*;
 use godot::prelude::*;
@@ -364,8 +364,60 @@ impl CefTexture {
 
         if let Ok(mouse_button) = event.clone().try_cast::<InputEventMouseButton>() {
             input::handle_mouse_button(&host, &mouse_button, dpi);
-        } else if let Ok(mouse_motion) = event.try_cast::<InputEventMouseMotion>() {
+        } else if let Ok(mouse_motion) = event.clone().try_cast::<InputEventMouseMotion>() {
             input::handle_mouse_motion(&host, &mouse_motion, dpi);
+        } else if let Ok(key_event) = event.try_cast::<InputEventKey>() {
+            input::handle_key_event(&host, &key_event);
         }
+    }
+
+    // ========== IME Support ==========
+
+    /// Commits IME text to the browser (call when IME composition is finalized)
+    #[func]
+    pub fn ime_commit_text(&mut self, text: GString) {
+        let Some(browser) = self.app.browser.as_mut() else {
+            return;
+        };
+        let Some(host) = browser.host() else {
+            return;
+        };
+        input::ime_commit_text(&host, &text.to_string());
+    }
+
+    /// Sets the current IME composition text (call during IME composition)
+    #[func]
+    pub fn ime_set_composition(&mut self, text: GString) {
+        let Some(browser) = self.app.browser.as_mut() else {
+            return;
+        };
+        let Some(host) = browser.host() else {
+            return;
+        };
+        input::ime_set_composition(&host, &text.to_string());
+    }
+
+    /// Cancels the current IME composition
+    #[func]
+    pub fn ime_cancel_composition(&mut self) {
+        let Some(browser) = self.app.browser.as_mut() else {
+            return;
+        };
+        let Some(host) = browser.host() else {
+            return;
+        };
+        input::ime_cancel_composition(&host);
+    }
+
+    /// Finishes the current IME composition
+    #[func]
+    pub fn ime_finish_composing_text(&mut self, keep_selection: bool) {
+        let Some(browser) = self.app.browser.as_mut() else {
+            return;
+        };
+        let Some(host) = browser.host() else {
+            return;
+        };
+        input::ime_finish_composing_text(&host, keep_selection);
     }
 }

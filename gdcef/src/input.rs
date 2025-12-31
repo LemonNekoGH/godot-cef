@@ -1,8 +1,10 @@
-use cef::{ImplBrowserHost, MouseButtonType, MouseEvent};
+use cef::{ImplBrowserHost, KeyEvent, KeyEventType, MouseButtonType, MouseEvent};
 use cef::sys::cef_event_flags_t;
-use godot::classes::{InputEventMouseButton, InputEventMouseMotion};
-use godot::global::{MouseButton, MouseButtonMask};
+use godot::classes::{InputEventKey, InputEventMouseButton, InputEventMouseMotion};
+use godot::global::{Key, MouseButton, MouseButtonMask};
 use godot::prelude::*;
+
+mod keycode;
 
 /// Creates a CEF mouse event from Godot position and DPI scale
 pub fn create_mouse_event(position: Vector2, dpi: f32, modifiers: u32) -> MouseEvent {
@@ -128,5 +130,183 @@ pub fn get_modifiers_from_motion_event(event: &Gd<InputEventMouseMotion>) -> u32
     }
 
     modifiers
+}
+
+/// Extracts modifier flags from a keyboard event
+pub fn get_modifiers_from_key_event(event: &Gd<InputEventKey>) -> u32 {
+    let mut modifiers = cef_event_flags_t::EVENTFLAG_NONE.0;
+
+    if event.is_shift_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
+    }
+    if event.is_ctrl_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
+    }
+    if event.is_alt_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
+    }
+    if event.is_meta_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
+    }
+
+    // Check if it's from the keypad
+    if is_keypad_key(event.get_physical_keycode()) {
+        modifiers |= cef_event_flags_t::EVENTFLAG_IS_KEY_PAD.0;
+    }
+
+    modifiers
+}
+
+/// Handles keyboard events and sends them to CEF browser host
+pub fn handle_key_event(host: &impl ImplBrowserHost, event: &Gd<InputEventKey>) {
+    let modifiers = get_modifiers_from_key_event(event);
+    let is_pressed = event.is_pressed();
+    let is_echo = event.is_echo();
+
+    let keycode = event.get_keycode();
+
+    // Get the Windows virtual key code from Godot key (CEF expects this on all platforms)
+    let windows_key_code = keycode::godot_key_to_windows_keycode(keycode);
+
+    // Get platform-specific native key code
+    let native_key_code = keycode::godot_key_to_native_keycode(keycode);
+
+    // Get the character code - for printable keys use unicode,
+    // for control characters use their ASCII codes
+    let unicode = event.get_unicode();
+    let character = if unicode != 0 {
+        unicode as u16
+    } else {
+        // Use ASCII codes for control characters
+        get_control_char_code(keycode)
+    };
+
+    // For key press events (not echo/repeat), send RAWKEYDOWN
+    if is_pressed && !is_echo {
+        let key_event = KeyEvent {
+            type_: KeyEventType::RAWKEYDOWN,
+            modifiers,
+            windows_key_code,
+            native_key_code,
+            is_system_key: 0,
+            character,
+            unmodified_character: character,
+            focus_on_editable_field: 0,
+            ..Default::default()
+        };
+        host.send_key_event(Some(&key_event));
+
+        // Send a CHAR event for printable characters AND control characters that need it
+        // (Backspace, Tab, Enter need CHAR events for text input to work)
+        if should_send_char_event(keycode, unicode) {
+            let char_event = KeyEvent {
+                type_: KeyEventType::CHAR,
+                modifiers,
+                windows_key_code,
+                native_key_code,
+                is_system_key: 0,
+                character,
+                unmodified_character: character,
+                focus_on_editable_field: 0,
+                ..Default::default()
+            };
+            host.send_key_event(Some(&char_event));
+        }
+    } else if !is_pressed {
+        // Key release event
+        let key_event = KeyEvent {
+            type_: KeyEventType::KEYUP,
+            modifiers,
+            windows_key_code,
+            native_key_code,
+            is_system_key: 0,
+            character,
+            unmodified_character: character,
+            focus_on_editable_field: 0,
+            ..Default::default()
+        };
+        host.send_key_event(Some(&key_event));
+    }
+}
+
+/// Returns the ASCII control character code for special keys
+fn get_control_char_code(key: Key) -> u16 {
+    match key {
+        Key::BACKSPACE => 0x08, // BS (Backspace)
+        Key::TAB => 0x09,       // HT (Horizontal Tab)
+        Key::ENTER | Key::KP_ENTER => 0x0D, // CR (Carriage Return)
+        Key::ESCAPE => 0x1B,    // ESC
+        Key::DELETE => 0x7F,    // DEL
+        _ => 0,
+    }
+}
+
+/// Determines if a CHAR event should be sent for this key
+fn should_send_char_event(key: Key, unicode: u32) -> bool {
+    // Send CHAR for printable characters
+    if unicode != 0 && !is_modifier_key(key) {
+        return true;
+    }
+
+    // Also send CHAR for control characters that text fields need
+    matches!(
+        key,
+        Key::BACKSPACE | Key::TAB | Key::ENTER | Key::KP_ENTER | Key::DELETE
+    )
+}
+
+/// Checks if a key is a modifier key (these should never send CHAR events)
+fn is_modifier_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::SHIFT | Key::CTRL | Key::ALT | Key::META | Key::CAPSLOCK | Key::NUMLOCK | Key::SCROLLLOCK
+    )
+}
+
+/// Checks if a key is from the numeric keypad
+fn is_keypad_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::KP_0
+            | Key::KP_1
+            | Key::KP_2
+            | Key::KP_3
+            | Key::KP_4
+            | Key::KP_5
+            | Key::KP_6
+            | Key::KP_7
+            | Key::KP_8
+            | Key::KP_9
+            | Key::KP_MULTIPLY
+            | Key::KP_SUBTRACT
+            | Key::KP_PERIOD
+            | Key::KP_ADD
+            | Key::KP_DIVIDE
+            | Key::KP_ENTER
+    )
+}
+
+/// Commits IME text to the CEF browser
+/// Call this when an IME composition is finalized
+pub fn ime_commit_text(host: &impl ImplBrowserHost, text: &str) {
+    let cef_text: cef::CefString = text.into();
+    host.ime_commit_text(Some(&cef_text), None, 0);
+}
+
+/// Sets the current IME composition text
+/// Call this during IME composition (before finalizing)
+pub fn ime_set_composition(host: &impl ImplBrowserHost, text: &str) {
+    let cef_text: cef::CefString = text.into();
+    host.ime_set_composition(Some(&cef_text), None, None, None);
+}
+
+/// Cancels the current IME composition
+pub fn ime_cancel_composition(host: &impl ImplBrowserHost) {
+    host.ime_cancel_composition();
+}
+
+/// Finishes the current IME composition, committing the text
+pub fn ime_finish_composing_text(host: &impl ImplBrowserHost, keep_selection: bool) {
+    host.ime_finish_composing_text(keep_selection as i32);
 }
 
