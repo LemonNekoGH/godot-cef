@@ -30,12 +30,33 @@ impl FrameBuffer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GodotRenderBackend {
+    #[default]
+    Unknown,
+    Direct3D12,
+    Metal,
+    Vulkan,
+}
+
 #[derive(Clone)]
-pub struct OsrApp {}
+pub struct OsrApp {
+    godot_backend: GodotRenderBackend,
+}
 
 impl OsrApp {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            godot_backend: GodotRenderBackend::Unknown,
+        }
+    }
+
+    pub fn with_godot_backend(godot_backend: GodotRenderBackend) -> Self {
+        Self { godot_backend }
+    }
+
+    pub fn godot_backend(&self) -> GodotRenderBackend {
+        self.godot_backend
     }
 }
 
@@ -65,6 +86,31 @@ wrap_app! {
             command_line.append_switch(Some(&"off-screen-rendering-enabled".into()));
             command_line
                 .append_switch_with_value(Some(&"remote-debugging-port".into()), Some(&"9229".into()));
+
+            match self.app.godot_backend() {
+                GodotRenderBackend::Direct3D12 => {
+                    command_line.append_switch_with_value(Some(&"use-gl".into()), Some(&"angle".into()));
+                    command_line.append_switch_with_value(Some(&"use-angle".into()), Some(&"d3d11on12".into()));
+                }
+                GodotRenderBackend::Metal => {
+                    command_line.append_switch_with_value(Some(&"use-gl".into()), Some(&"angle".into()));
+                    command_line.append_switch_with_value(Some(&"use-angle".into()), Some(&"metal".into()));
+                }
+                #[cfg(target_os = "macos")]
+                // using --use=angle=vulkan would disables GPU acceleration on macOS.
+                // thus we keep using metal backend for Vulkan on macOS.
+                // We use MoltenVK on macOS to translate Vulkan to Metal.
+                GodotRenderBackend::Vulkan => {
+                    command_line.append_switch_with_value(Some(&"use-gl".into()), Some(&"angle".into()));
+                    command_line.append_switch_with_value(Some(&"use-angle".into()), Some(&"metal".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                GodotRenderBackend::Vulkan => {
+                    command_line.append_switch_with_value(Some(&"use-gl".into()), Some(&"angle".into()));
+                    command_line.append_switch_with_value(Some(&"use-angle".into()), Some(&"vulkan".into()));
+                }
+                _ => {}
+            }
         }
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {

@@ -10,6 +10,8 @@ use cef::api_hash;
 use crate::utils::get_framework_path;
 use crate::utils::get_subprocess_path;
 
+use crate::accelerated_osr::RenderBackend;
+
 /// Global initialization guard - CEF can only be initialized once
 pub static CEF_INITIALIZED: Once = Once::new();
 
@@ -70,10 +72,22 @@ pub fn load_sandbox(args: &cef::MainArgs) {
     }
 }
 
+fn detect_godot_render_backend() -> cef_app::GodotRenderBackend {
+    let godot_backend = RenderBackend::detect();
+
+    match godot_backend {
+        RenderBackend::Metal => cef_app::GodotRenderBackend::Metal,
+        RenderBackend::Vulkan => cef_app::GodotRenderBackend::Vulkan,
+        RenderBackend::D3D12 => cef_app::GodotRenderBackend::Direct3D12,
+        _ => cef_app::GodotRenderBackend::Unknown,
+    }
+}
+
 /// Initializes CEF with the given settings
 pub fn initialize_cef() {
     let args = cef::args::Args::new();
-    let mut app = cef_app::AppBuilder::build(cef_app::OsrApp::new());
+    let godot_backend = detect_godot_render_backend();
+    let mut app = cef_app::AppBuilder::build(cef_app::OsrApp::with_godot_backend(godot_backend));
 
     #[cfg(target_os = "macos")]
     load_sandbox(args.as_main_args());
