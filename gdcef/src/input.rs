@@ -86,8 +86,8 @@ pub fn handle_pan_gesture(
     // Convert pan delta to scroll wheel delta
     // Pan gesture delta is typically smaller, so we scale it up
     // Negative because pan direction is opposite to scroll direction
-    let delta_x = (-delta.x * 120.0) as i32;
-    let delta_y = (-delta.y * 120.0) as i32;
+    let delta_x = (-delta.x * 120.0 / device_scale_factor) as i32;
+    let delta_y = (-delta.y * 120.0 / device_scale_factor) as i32;
 
     if delta_x != 0 || delta_y != 0 {
         host.send_mouse_wheel_event(Some(&mouse_event), delta_x, delta_y);
