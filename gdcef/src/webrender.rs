@@ -2,15 +2,44 @@ use cef::{self, rc::Rc, *, sys::cef_cursor_type_t};
 use cef_app::CursorType;
 use godot::global::godot_print;
 use std::sync::{Arc, Mutex};
+use wide::{i8x16, u8x16};
 
+/// Swizzle indices for BGRA -> RGBA conversion.
+/// [B,G,R,A] at indices [0,1,2,3] -> [R,G,B,A] means pick [2,1,0,3] for each pixel.
+const BGRA_TO_RGBA_INDICES: i8x16 =
+    i8x16::new([2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15]);
+
+/// Converts BGRA pixel data to RGBA using SIMD operations.
+/// Processes 16 bytes (4 pixels) at a time for optimal performance.
 fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity(bgra.len());
-    for chunk in bgra.chunks_exact(4) {
-        rgba.push(chunk[2]);
-        rgba.push(chunk[1]);
-        rgba.push(chunk[0]);
-        rgba.push(chunk[3]);
+    let mut rgba = vec![0u8; bgra.len()];
+
+    // Process 16 bytes (4 pixels) at a time using SIMD
+    let simd_chunks = bgra.len() / 16;
+    for i in 0..simd_chunks {
+        let offset = i * 16;
+        let src: [u8; 16] = bgra[offset..offset + 16].try_into().unwrap();
+        let v = u8x16::new(src);
+        // Swizzle BGRA -> RGBA using precomputed indices
+        let shuffled = v.swizzle(BGRA_TO_RGBA_INDICES);
+        let result: [i8; 16] = shuffled.into();
+        // Safe transmute: i8 and u8 have identical bit representation
+        let result_u8: [u8; 16] = unsafe { std::mem::transmute(result) };
+        rgba[offset..offset + 16].copy_from_slice(&result_u8);
     }
+
+    // Handle remaining pixels that don't fit in a 16-byte chunk
+    let remainder_start = simd_chunks * 16;
+    for (src, dst) in bgra[remainder_start..]
+        .chunks_exact(4)
+        .zip(rgba[remainder_start..].chunks_exact_mut(4))
+    {
+        dst[0] = src[2]; // R
+        dst[1] = src[1]; // G
+        dst[2] = src[0]; // B
+        dst[3] = src[3]; // A
+    }
+
     rgba
 }
 

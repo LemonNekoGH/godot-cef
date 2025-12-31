@@ -1,27 +1,34 @@
-mod webrender;
+mod cef_init;
+mod cursor;
+mod input;
 mod utils;
+mod webrender;
 
-use cef::{BrowserSettings, ImplBrowser, ImplBrowserHost, MouseButtonType, MouseEvent, RequestContextSettings, Settings, WindowInfo, api_hash, quit_message_loop, run_message_loop};
-use cef::sys::cef_event_flags_t;
+use cef::{
+    quit_message_loop, run_message_loop, BrowserSettings, ImplBrowser, ImplBrowserHost,
+    RequestContextSettings, WindowInfo,
+};
 use cef_app::{CursorType, FrameBuffer};
-use godot::classes::notify::ControlNotification;
-use godot::classes::{ITextureRect, Image, ImageTexture, InputEvent, InputEventMouseButton, InputEventMouseMotion, Os, TextureRect};
-use godot::classes::texture_rect::ExpandMode;
 use godot::classes::image::Format as ImageFormat;
-use godot::classes::control::CursorShape;
-use godot::global::{MouseButton, MouseButtonMask};
+use godot::classes::notify::ControlNotification;
+use godot::classes::texture_rect::ExpandMode;
+use godot::classes::{
+    ITextureRect, Image, ImageTexture, InputEvent, InputEventMouseButton, InputEventMouseMotion,
+    TextureRect,
+};
 use godot::init::*;
 use godot::prelude::*;
-use winit::dpi::{PhysicalSize};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex};
+use winit::dpi::PhysicalSize;
 
-use crate::utils::get_subprocess_path;
+use crate::cef_init::CEF_INITIALIZED;
 
 struct GodotCef;
+
 #[gdextension]
 unsafe impl ExtensionLibrary for GodotCef {}
 
+/// Internal application state for CEF browser
 struct App {
     browser: Option<cef::Browser>,
     frame_buffer: Option<Arc<Mutex<FrameBuffer>>>,
@@ -50,12 +57,11 @@ impl Default for App {
     }
 }
 
+/// A Godot TextureRect that renders a CEF browser
 #[derive(GodotClass)]
 #[class(base=TextureRect)]
 struct CefTexture {
     base: Base<TextureRect>,
-
-    // internal states
     app: App,
 
     #[export]
@@ -81,17 +87,10 @@ impl ITextureRect for CefTexture {
     }
 
     fn on_notification(&mut self, what: ControlNotification) {
-        match what {
-            ControlNotification::WM_CLOSE_REQUEST => {
-                self.shutdown_cef();
-            }
-            _ => {}
+        if let ControlNotification::WM_CLOSE_REQUEST = what {
+            self.shutdown();
         }
     }
-
-    // fn gui_input(&mut self, event: Gd<InputEvent>) {
-    //     self.handle_input_event(event);
-    // }
 
     fn input(&mut self, event: Gd<InputEvent>) {
         self.handle_input_event(event);
@@ -100,185 +99,14 @@ impl ITextureRect for CefTexture {
 
 #[godot_api]
 impl CefTexture {
-    fn load_cef_framework() {
-        #[cfg(target_os = "macos")]
-        {
-            use cef::sys::cef_load_library;
-
-            let framework_path = utils::get_framework_path();
-            let path = framework_path
-                .unwrap()
-                .join("Chromium Embedded Framework")
-                .canonicalize()
-                .unwrap();
-
-            use std::os::unix::ffi::OsStrExt;
-            let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
-                panic!("Failed to convert library path to CString");
-            };
-            let result = unsafe {
-                let arg_path = Some(&*path.as_ptr().cast());
-                let arg_path = arg_path.map(std::ptr::from_ref).unwrap_or(std::ptr::null());
-                cef_load_library(arg_path) == 1
-            };
-
-            assert!(result, "Failed to load macOS CEF framework");
-
-            // set the API hash
-            let _ = api_hash(cef::sys::CEF_API_VERSION_LAST, 0);
-        };
-    }
-
-    #[cfg(all(target_os = "macos"))]
-    fn load_sandbox(args: &cef::MainArgs) {
-        use libloading::Library;
-
-        let framework_path = utils::get_framework_path();
-        let path = framework_path
-            .unwrap()
-            .join("Libraries/libcef_sandbox.dylib")
-            .canonicalize()
-            .unwrap();
-
-        unsafe {
-            let lib = Library::new(path).unwrap();
-            let func = lib.get::<unsafe extern "C" fn(
-                argc: std::os::raw::c_int,
-                argv: *mut *mut ::std::os::raw::c_char,
-            )>(b"cef_sandbox_initialize\0").unwrap();
-            func(args.argc, args.argv);
-        }
-    }
-
-    fn initialize_cef() {
-        let args = cef::args::Args::new();
-        let mut app = cef_app::AppBuilder::build(cef_app::OsrApp::new());
-
-        #[cfg(all(target_os = "macos"))]
-        Self::load_sandbox(args.as_main_args());
-
-        // FIXME: cross-platform
-        let subprocess_path = get_subprocess_path().unwrap();
-
-        godot_print!("subprocess_path: {}", subprocess_path.to_str().unwrap());
-
-        let user_data_dir = PathBuf::from(Os::singleton().get_user_data_dir().to_string());
-        let root_cache_path = user_data_dir.join("Godot CEF/Cache");
-
-        let settings = Settings {
-            browser_subprocess_path: subprocess_path.to_str().unwrap().into(),
-            windowless_rendering_enabled: true as _,
-            external_message_pump: true as _,
-            log_severity: cef::LogSeverity::VERBOSE as _,
-            // log_file: "/tmp/cef.log".into(),
-            root_cache_path: root_cache_path.to_str().unwrap().into(),
-            ..Default::default()
-        };
-
-        #[cfg(target_os = "macos")]
-        let settings = Settings {
-            framework_dir_path: utils::get_framework_path().unwrap().to_str().unwrap().into(),
-            main_bundle_path: get_subprocess_path().unwrap().join("../../..").canonicalize().unwrap().to_str().unwrap().into(),
-            ..settings
-        };
-
-        let ret = cef::initialize(
-            Some(args.as_main_args()),
-            Some(&settings),
-            Some(&mut app),
-            std::ptr::null_mut()
-        );
-
-        assert_eq!(ret, 1, "failed to initialize CEF");
-    }
-
-    fn shutdown_cef(&mut self) {
-        self.app.browser = None;
-        self.app.frame_buffer = None;
-        self.app.texture = None;
-        self.app.render_size = None;
-        self.app.device_scale_factor = None;
-        self.app.cursor_type = None;
-
-        if CEF_INITIALIZED.is_completed() {
-            cef::shutdown();
-        }
-    }
-
-    fn create_texture_and_buffer(&mut self, render_handler: &cef_app::OsrRenderHandler, initial_dpi: f32) {
-        let frame_buffer = render_handler.get_frame_buffer();
-        let render_size = render_handler.get_size();
-        let device_scale_factor = render_handler.get_device_scale_factor();
-        let cursor_type = render_handler.get_cursor_type();
-
-        let texture = ImageTexture::new_gd();
-        self.base_mut().set_texture(&texture);
-
-        self.app.frame_buffer = Some(frame_buffer);
-        self.app.texture = Some(texture);
-        self.app.render_size = Some(render_size);
-        self.app.device_scale_factor = Some(device_scale_factor);
-        self.app.cursor_type = Some(cursor_type);
-        self.app.last_size = self.base().get_rect().size;
-        self.app.last_dpi = initial_dpi;
-    }
-
-    fn create_browser(&mut self) {
-        let logical_size = self.base().get_rect().size;
-        let dpi = self.get_content_scale_factor();
-        let pixel_width = (logical_size.x * dpi) as i32;
-        let pixel_height = (logical_size.y * dpi) as i32;
-        
-        let window_info = WindowInfo {
-            bounds: cef::Rect {
-                x: 0 as _,
-                y: 0 as _,
-                width: pixel_width as _,
-                height: pixel_height as _,
-            },
-            windowless_rendering_enabled: true as _,
-            shared_texture_enabled: false as _,
-            external_begin_frame_enabled: true as _,
-            ..Default::default()
-        };
-
-        let browser_settings = BrowserSettings {
-            ..Default::default()
-        };
-
-        let mut context = cef::request_context_create_context(
-            Some(&RequestContextSettings::default()),
-            Some(&mut webrender::RequestContextHandlerBuilder::build(webrender::OsrRequestContextHandler {})),
-        );
-
-        let render_handler = cef_app::OsrRenderHandler::new(
-            dpi,
-            PhysicalSize::new(pixel_width as f32, pixel_height as f32)
-        );
-        self.create_texture_and_buffer(&render_handler, dpi);
-        
-        let mut client = webrender::ClientBuilder::build(render_handler);
-
-        let browser = cef::browser_host_create_browser_sync(
-            Some(&window_info),
-            Some(&mut client),
-            Some(&self.url.to_string().as_str().into()),
-            Some(&browser_settings),
-            None,
-            context.as_mut(),
-        );
-
-        assert!(browser.is_some(), "failed to create browser");
-
-        self.app.browser = browser;
-    }
+    // ========== Lifecycle ==========
 
     fn on_ready(&mut self) {
         self.base_mut().set_expand_mode(ExpandMode::IGNORE_SIZE);
 
         CEF_INITIALIZED.call_once(|| {
-            Self::load_cef_framework();
-            Self::initialize_cef();
+            cef_init::load_cef_framework();
+            cef_init::initialize_cef();
         });
 
         self.create_browser();
@@ -302,6 +130,92 @@ impl CefTexture {
         self.update_cursor();
         self.request_external_begin_frame();
     }
+
+    fn shutdown(&mut self) {
+        self.app.browser = None;
+        self.app.frame_buffer = None;
+        self.app.texture = None;
+        self.app.render_size = None;
+        self.app.device_scale_factor = None;
+        self.app.cursor_type = None;
+
+        cef_init::shutdown_cef();
+    }
+
+    // ========== Browser Creation ==========
+
+    fn create_browser(&mut self) {
+        let logical_size = self.base().get_rect().size;
+        let dpi = self.get_content_scale_factor();
+        let pixel_width = (logical_size.x * dpi) as i32;
+        let pixel_height = (logical_size.y * dpi) as i32;
+
+        let window_info = WindowInfo {
+            bounds: cef::Rect {
+                x: 0,
+                y: 0,
+                width: pixel_width,
+                height: pixel_height,
+            },
+            windowless_rendering_enabled: true as _,
+            shared_texture_enabled: false as _,
+            external_begin_frame_enabled: true as _,
+            ..Default::default()
+        };
+
+        let browser_settings = BrowserSettings::default();
+
+        let mut context = cef::request_context_create_context(
+            Some(&RequestContextSettings::default()),
+            Some(&mut webrender::RequestContextHandlerBuilder::build(
+                webrender::OsrRequestContextHandler {},
+            )),
+        );
+
+        let render_handler = cef_app::OsrRenderHandler::new(
+            dpi,
+            PhysicalSize::new(pixel_width as f32, pixel_height as f32),
+        );
+        self.create_texture_and_buffer(&render_handler, dpi);
+
+        let mut client = webrender::ClientBuilder::build(render_handler);
+
+        let browser = cef::browser_host_create_browser_sync(
+            Some(&window_info),
+            Some(&mut client),
+            Some(&self.url.to_string().as_str().into()),
+            Some(&browser_settings),
+            None,
+            context.as_mut(),
+        );
+
+        assert!(browser.is_some(), "failed to create browser");
+        self.app.browser = browser;
+    }
+
+    fn create_texture_and_buffer(
+        &mut self,
+        render_handler: &cef_app::OsrRenderHandler,
+        initial_dpi: f32,
+    ) {
+        let frame_buffer = render_handler.get_frame_buffer();
+        let render_size = render_handler.get_size();
+        let device_scale_factor = render_handler.get_device_scale_factor();
+        let cursor_type = render_handler.get_cursor_type();
+
+        let texture = ImageTexture::new_gd();
+        self.base_mut().set_texture(&texture);
+
+        self.app.frame_buffer = Some(frame_buffer);
+        self.app.texture = Some(texture);
+        self.app.render_size = Some(render_size);
+        self.app.device_scale_factor = Some(device_scale_factor);
+        self.app.cursor_type = Some(cursor_type);
+        self.app.last_size = self.base().get_rect().size;
+        self.app.last_dpi = initial_dpi;
+    }
+
+    // ========== Display Handling ==========
 
     fn get_content_scale_factor(&self) -> f32 {
         if let Some(tree) = self.base().get_tree() {
@@ -378,6 +292,8 @@ impl CefTexture {
         self.app.last_size = logical_size;
     }
 
+    // ========== Rendering ==========
+
     fn update_texture_from_buffer(&mut self) {
         let Some(frame_buffer_arc) = &self.app.frame_buffer else {
             return;
@@ -412,6 +328,8 @@ impl CefTexture {
         }
     }
 
+    // ========== Cursor ==========
+
     fn update_cursor(&mut self) {
         let cursor_type_arc = match &self.app.cursor_type {
             Some(arc) => arc.clone(),
@@ -428,164 +346,26 @@ impl CefTexture {
         }
 
         self.app.last_cursor = current_cursor;
-        let shape = Self::cursor_type_to_shape(current_cursor);
+        let shape = cursor::cursor_type_to_shape(current_cursor);
         self.base_mut().set_default_cursor_shape(shape);
     }
 
-    fn cursor_type_to_shape(cursor_type: CursorType) -> CursorShape {
-        match cursor_type {
-            CursorType::Arrow => CursorShape::ARROW,
-            CursorType::IBeam => CursorShape::IBEAM,
-            CursorType::Hand => CursorShape::POINTING_HAND,
-            CursorType::Cross => CursorShape::CROSS,
-            CursorType::Wait => CursorShape::WAIT,
-            CursorType::Help => CursorShape::HELP,
-            CursorType::Move => CursorShape::MOVE,
-            CursorType::ResizeNS => CursorShape::VSIZE,
-            CursorType::ResizeEW => CursorShape::HSIZE,
-            CursorType::ResizeNESW => CursorShape::BDIAGSIZE,
-            CursorType::ResizeNWSE => CursorShape::FDIAGSIZE,
-            CursorType::NotAllowed => CursorShape::FORBIDDEN,
-            CursorType::Progress => CursorShape::BUSY,
-        }
-    }
+    // ========== Input ==========
 
     fn handle_input_event(&mut self, event: Gd<InputEvent>) {
+        let Some(browser) = self.app.browser.as_mut() else {
+            return;
+        };
+        let Some(host) = browser.host() else {
+            return;
+        };
+
+        let dpi = self.get_content_scale_factor();
+
         if let Ok(mouse_button) = event.clone().try_cast::<InputEventMouseButton>() {
-            self.handle_mouse_button_event(&mouse_button);
+            input::handle_mouse_button(&host, &mouse_button, dpi);
         } else if let Ok(mouse_motion) = event.try_cast::<InputEventMouseMotion>() {
-            self.handle_mouse_motion_event(&mouse_motion);
+            input::handle_mouse_motion(&host, &mouse_motion, dpi);
         }
-    }
-
-    fn handle_mouse_button_event(&mut self, event: &Gd<InputEventMouseButton>) {
-        let Some(browser) = self.app.browser.as_mut() else {
-            return;
-        };
-        let Some(host) = browser.host() else {
-            return;
-        };
-
-        let position = event.get_position();
-        let dpi = self.get_content_scale_factor();
-        let mouse_event = self.create_mouse_event(position, dpi, Self::get_modifiers_from_event(event));
-
-        match event.get_button_index() {
-            MouseButton::LEFT | MouseButton::MIDDLE | MouseButton::RIGHT => {
-                let button_type = match event.get_button_index() {
-                    MouseButton::LEFT => MouseButtonType::LEFT,
-                    MouseButton::MIDDLE => MouseButtonType::MIDDLE,
-                    MouseButton::RIGHT => MouseButtonType::RIGHT,
-                    _ => unreachable!(),
-                };
-                let mouse_up = !event.is_pressed();
-                let click_count = if event.is_double_click() { 2 } else { 1 };
-                host.send_mouse_click_event(Some(&mouse_event), button_type, mouse_up as i32, click_count);
-            }
-            MouseButton::WHEEL_UP => {
-                let delta = (120.0 * event.get_factor()) as i32;
-                host.send_mouse_wheel_event(Some(&mouse_event), 0, delta);
-            }
-            MouseButton::WHEEL_DOWN => {
-                let delta = (120.0 * event.get_factor()) as i32;
-                host.send_mouse_wheel_event(Some(&mouse_event), 0, -delta);
-            }
-            MouseButton::WHEEL_LEFT => {
-                let delta = (120.0 * event.get_factor()) as i32;
-                host.send_mouse_wheel_event(Some(&mouse_event), -delta, 0);
-            }
-            MouseButton::WHEEL_RIGHT => {
-                let delta = (120.0 * event.get_factor()) as i32;
-                host.send_mouse_wheel_event(Some(&mouse_event), delta, 0);
-            }
-            _ => {}
-        }
-    }
-
-    fn handle_mouse_motion_event(&mut self, event: &Gd<InputEventMouseMotion>) {
-        let Some(browser) = self.app.browser.as_mut() else {
-            return;
-        };
-        let Some(host) = browser.host() else {
-            return;
-        };
-
-        let position = event.get_position();
-        let dpi = self.get_content_scale_factor();
-        let mouse_event = self.create_mouse_event(position, dpi, Self::get_modifiers_from_motion_event(event));
-        host.send_mouse_move_event(Some(&mouse_event), false as i32);
-    }
-
-    fn create_mouse_event(&self, position: Vector2, dpi: f32, modifiers: u32) -> MouseEvent {
-        let x = (position.x * dpi) as i32;
-        let y = (position.y * dpi) as i32;
-
-        MouseEvent {
-            x,
-            y,
-            modifiers,
-        }
-    }
-
-    fn get_modifiers_from_event(event: &Gd<InputEventMouseButton>) -> u32 {
-        let mut modifiers = cef_event_flags_t::EVENTFLAG_NONE.0;
-
-        if event.is_shift_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
-        }
-        if event.is_ctrl_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
-        }
-        if event.is_alt_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
-        }
-        if event.is_meta_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
-        }
-
-        let button_mask = event.get_button_mask();
-        if button_mask.is_set(MouseButtonMask::LEFT) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_LEFT_MOUSE_BUTTON.0;
-        }
-        if button_mask.is_set(MouseButtonMask::MIDDLE) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_MIDDLE_MOUSE_BUTTON.0;
-        }
-        if button_mask.is_set(MouseButtonMask::RIGHT) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_RIGHT_MOUSE_BUTTON.0;
-        }
-
-        modifiers
-    }
-
-    fn get_modifiers_from_motion_event(event: &Gd<InputEventMouseMotion>) -> u32 {
-        let mut modifiers = cef_event_flags_t::EVENTFLAG_NONE.0;
-
-        if event.is_shift_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
-        }
-        if event.is_ctrl_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
-        }
-        if event.is_alt_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
-        }
-        if event.is_meta_pressed() {
-            modifiers |= cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
-        }
-
-        let button_mask = event.get_button_mask();
-        if button_mask.is_set(MouseButtonMask::LEFT) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_LEFT_MOUSE_BUTTON.0;
-        }
-        if button_mask.is_set(MouseButtonMask::MIDDLE) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_MIDDLE_MOUSE_BUTTON.0;
-        }
-        if button_mask.is_set(MouseButtonMask::RIGHT) {
-            modifiers |= cef_event_flags_t::EVENTFLAG_RIGHT_MOUSE_BUTTON.0;
-        }
-
-        modifiers
     }
 }
-
-static CEF_INITIALIZED: Once = Once::new();
