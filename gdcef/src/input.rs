@@ -7,9 +7,9 @@ use godot::prelude::*;
 mod keycode;
 
 /// Creates a CEF mouse event from Godot position and DPI scale
-pub fn create_mouse_event(position: Vector2, dpi: f32, modifiers: u32) -> MouseEvent {
-    let x = (position.x * dpi) as i32;
-    let y = (position.y * dpi) as i32;
+pub fn create_mouse_event(position: Vector2, pixel_scale_factor: f32, device_scale_factor: f32, modifiers: u32) -> MouseEvent {
+    let x = (position.x * pixel_scale_factor / device_scale_factor) as i32;
+    let y = (position.y * pixel_scale_factor / device_scale_factor) as i32;
 
     MouseEvent {
         x,
@@ -22,10 +22,11 @@ pub fn create_mouse_event(position: Vector2, dpi: f32, modifiers: u32) -> MouseE
 pub fn handle_mouse_button(
     host: &impl ImplBrowserHost,
     event: &Gd<InputEventMouseButton>,
-    dpi: f32,
+    pixel_scale_factor: f32,
+    device_scale_factor: f32,
 ) {
-    let position = event.get_position();
-    let mouse_event = create_mouse_event(position, dpi, get_modifiers_from_button_event(event));
+    let position = event.get_position() ;
+    let mouse_event = create_mouse_event(position, pixel_scale_factor, device_scale_factor, get_modifiers_from_button_event(event));
 
     match event.get_button_index() {
         MouseButton::LEFT | MouseButton::MIDDLE | MouseButton::RIGHT => {
@@ -63,10 +64,11 @@ pub fn handle_mouse_button(
 pub fn handle_mouse_motion(
     host: &impl ImplBrowserHost,
     event: &Gd<InputEventMouseMotion>,
-    dpi: f32,
+    pixel_scale_factor: f32,
+    device_scale_factor: f32,
 ) {
     let position = event.get_position();
-    let mouse_event = create_mouse_event(position, dpi, get_modifiers_from_motion_event(event));
+    let mouse_event = create_mouse_event(position, pixel_scale_factor, device_scale_factor, get_modifiers_from_motion_event(event));
     host.send_mouse_move_event(Some(&mouse_event), false as i32);
 }
 
@@ -74,10 +76,11 @@ pub fn handle_mouse_motion(
 pub fn handle_pan_gesture(
     host: &impl ImplBrowserHost,
     event: &Gd<InputEventPanGesture>,
-    dpi: f32,
+    pixel_scale_factor: f32,
+    device_scale_factor: f32,
 ) {
     let position = event.get_position();
-    let mouse_event = create_mouse_event(position, dpi, get_modifiers_from_pan_gesture_event(event));
+    let mouse_event = create_mouse_event(position, pixel_scale_factor, device_scale_factor, get_modifiers_from_pan_gesture_event(event));
 
     let delta = event.get_delta();
     // Convert pan delta to scroll wheel delta

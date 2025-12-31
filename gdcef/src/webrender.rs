@@ -1,5 +1,6 @@
 use cef::{self, rc::Rc, sys::cef_cursor_type_t, *};
 use cef_app::CursorType;
+use godot::{classes::DisplayServer, obj::Singleton};
 use std::sync::{Arc, Mutex};
 use wide::{i8x16, u8x16};
 
@@ -67,10 +68,8 @@ wrap_render_handler! {
             screen_info: Option<&mut ScreenInfo>,
         ) -> ::std::os::raw::c_int {
             if let Some(screen_info) = screen_info {
-                if let Ok(scale) = self.handler.device_scale_factor.lock() {
-                    screen_info.device_scale_factor = *scale;
-                    return true as _;
-                }
+                screen_info.device_scale_factor = DisplayServer::singleton().screen_get_scale();
+                return true as _;
             }
             false as _
         }
@@ -128,8 +127,8 @@ wrap_render_handler! {
             if let Some(rect) = rect {
                 if let Ok(size) = self.handler.size.lock() {
                     if size.width > 0.0 && size.height > 0.0 {
-                        rect.width = size.width as _;
-                        rect.height = size.height as _;
+                        rect.width = (size.width / DisplayServer::singleton().screen_get_scale()) as _;
+                        rect.height = (size.height / DisplayServer::singleton().screen_get_scale()) as _;
                     }
                 }
             }
@@ -141,10 +140,8 @@ wrap_render_handler! {
             screen_info: Option<&mut ScreenInfo>,
         ) -> ::std::os::raw::c_int {
             if let Some(screen_info) = screen_info {
-                if let Ok(scale) = self.handler.device_scale_factor.lock() {
-                    screen_info.device_scale_factor = *scale;
-                    return true as _;
-                }
+                screen_info.device_scale_factor = DisplayServer::singleton().screen_get_scale();
+                return true as _;
             }
             false as _
         }

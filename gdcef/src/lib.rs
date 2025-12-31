@@ -14,8 +14,7 @@ use godot::classes::image::Format as ImageFormat;
 use godot::classes::notify::ControlNotification;
 use godot::classes::texture_rect::ExpandMode;
 use godot::classes::{
-    ITextureRect, Image, ImageTexture, InputEvent, InputEventKey, InputEventMouseButton,
-    InputEventMouseMotion, InputEventPanGesture, RenderingServer, TextureRect,
+    DisplayServer, ITextureRect, Image, ImageTexture, InputEvent, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputEventPanGesture, RenderingServer, TextureRect
 };
 use godot::init::*;
 use godot::prelude::*;
@@ -166,8 +165,8 @@ impl CefTexture {
     }
 
     fn create_browser(&mut self) {
-        let logical_size = self.base().get_rect().size;
-        let dpi = self.get_content_scale_factor();
+        let logical_size = self.base().get_size();
+        let dpi = self.get_pixel_scale_factor();
         let pixel_width = (logical_size.x * dpi) as i32;
         let pixel_height = (logical_size.y * dpi) as i32;
 
@@ -359,17 +358,16 @@ impl CefTexture {
         )
     }
 
-    fn get_content_scale_factor(&self) -> f32 {
-        if let Some(tree) = self.base().get_tree() {
-            if let Some(window) = tree.get_root() {
-                return window.get_content_scale_factor();
-            }
-        }
-        1.0
+    fn get_pixel_scale_factor(&self) -> f32 {
+        self.base().get_viewport().unwrap().get_stretch_transform().a.x
+    }
+
+    fn get_device_scale_factor(&self) -> f32 {
+        DisplayServer::singleton().screen_get_scale()
     }
 
     fn handle_dpi_change(&mut self) {
-        let current_dpi = self.get_content_scale_factor();
+        let current_dpi = self.get_pixel_scale_factor();
         if (current_dpi - self.app.last_dpi).abs() < 0.01 {
             return;
         }
@@ -380,7 +378,7 @@ impl CefTexture {
             }
         }
 
-        let logical_size = self.base().get_rect().size;
+        let logical_size = self.base().get_size();
         let pixel_width = logical_size.x * current_dpi;
         let pixel_height = logical_size.y * current_dpi;
 
@@ -402,7 +400,7 @@ impl CefTexture {
     }
 
     fn handle_size_change(&mut self) {
-        let logical_size = self.base().get_rect().size;
+        let logical_size = self.base().get_size();
         if logical_size.x <= 0.0 || logical_size.y <= 0.0 {
             return;
         }
@@ -412,7 +410,7 @@ impl CefTexture {
             return;
         }
 
-        let dpi = self.get_content_scale_factor();
+        let dpi = self.get_pixel_scale_factor();
         let pixel_width = logical_size.x * dpi;
         let pixel_height = logical_size.y * dpi;
 
@@ -543,14 +541,12 @@ impl CefTexture {
             return;
         };
 
-        let dpi = self.get_content_scale_factor();
-
         if let Ok(mouse_button) = event.clone().try_cast::<InputEventMouseButton>() {
-            input::handle_mouse_button(&host, &mouse_button, dpi);
+            input::handle_mouse_button(&host, &mouse_button, self.get_pixel_scale_factor(), self.get_device_scale_factor());
         } else if let Ok(mouse_motion) = event.clone().try_cast::<InputEventMouseMotion>() {
-            input::handle_mouse_motion(&host, &mouse_motion, dpi);
+            input::handle_mouse_motion(&host, &mouse_motion, self.get_pixel_scale_factor(), self.get_device_scale_factor());
         } else if let Ok(pan_gesture) = event.clone().try_cast::<InputEventPanGesture>() {
-            input::handle_pan_gesture(&host, &pan_gesture, dpi);
+            input::handle_pan_gesture(&host, &pan_gesture, self.get_pixel_scale_factor(), self.get_device_scale_factor());
         } else if let Ok(key_event) = event.try_cast::<InputEventKey>() {
             input::handle_key_event(&host, &key_event);
         }
