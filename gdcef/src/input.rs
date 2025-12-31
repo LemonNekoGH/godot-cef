@@ -1,6 +1,6 @@
 use cef::{ImplBrowserHost, KeyEvent, KeyEventType, MouseButtonType, MouseEvent};
 use cef::sys::cef_event_flags_t;
-use godot::classes::{InputEventKey, InputEventMouseButton, InputEventMouseMotion};
+use godot::classes::{InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputEventPanGesture};
 use godot::global::{Key, MouseButton, MouseButtonMask};
 use godot::prelude::*;
 
@@ -68,6 +68,47 @@ pub fn handle_mouse_motion(
     let position = event.get_position();
     let mouse_event = create_mouse_event(position, dpi, get_modifiers_from_motion_event(event));
     host.send_mouse_move_event(Some(&mouse_event), false as i32);
+}
+
+/// Handles pan gesture events (trackpad scrolling) and sends them to CEF browser host
+pub fn handle_pan_gesture(
+    host: &impl ImplBrowserHost,
+    event: &Gd<InputEventPanGesture>,
+    dpi: f32,
+) {
+    let position = event.get_position();
+    let mouse_event = create_mouse_event(position, dpi, get_modifiers_from_pan_gesture_event(event));
+
+    let delta = event.get_delta();
+    // Convert pan delta to scroll wheel delta
+    // Pan gesture delta is typically smaller, so we scale it up
+    // Negative because pan direction is opposite to scroll direction
+    let delta_x = (-delta.x * 120.0) as i32;
+    let delta_y = (-delta.y * 120.0) as i32;
+
+    if delta_x != 0 || delta_y != 0 {
+        host.send_mouse_wheel_event(Some(&mouse_event), delta_x, delta_y);
+    }
+}
+
+/// Extracts modifier flags from a pan gesture event
+pub fn get_modifiers_from_pan_gesture_event(event: &Gd<InputEventPanGesture>) -> u32 {
+    let mut modifiers = cef_event_flags_t::EVENTFLAG_NONE.0;
+
+    if event.is_shift_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
+    }
+    if event.is_ctrl_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
+    }
+    if event.is_alt_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
+    }
+    if event.is_meta_pressed() {
+        modifiers |= cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
+    }
+
+    modifiers
 }
 
 /// Extracts modifier flags from a mouse button event

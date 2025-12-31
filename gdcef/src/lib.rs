@@ -15,7 +15,7 @@ use godot::classes::notify::ControlNotification;
 use godot::classes::texture_rect::ExpandMode;
 use godot::classes::{
     ITextureRect, Image, ImageTexture, InputEvent, InputEventKey, InputEventMouseButton,
-    InputEventMouseMotion, RenderingServer, TextureRect,
+    InputEventMouseMotion, InputEventPanGesture, RenderingServer, TextureRect,
 };
 use godot::init::*;
 use godot::prelude::*;
@@ -553,6 +553,8 @@ impl CefTexture {
             input::handle_mouse_button(&host, &mouse_button, dpi);
         } else if let Ok(mouse_motion) = event.clone().try_cast::<InputEventMouseMotion>() {
             input::handle_mouse_motion(&host, &mouse_motion, dpi);
+        } else if let Ok(pan_gesture) = event.clone().try_cast::<InputEventPanGesture>() {
+            input::handle_pan_gesture(&host, &pan_gesture, dpi);
         } else if let Ok(key_event) = event.try_cast::<InputEventKey>() {
             input::handle_key_event(&host, &key_event);
         }
