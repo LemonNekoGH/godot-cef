@@ -296,11 +296,43 @@ impl ContextMenuHandlerImpl {
     }
 }
 
+wrap_life_span_handler! {
+    pub(crate) struct LifeSpanHandlerImpl {}
+    impl LifeSpanHandler {
+        // Disable popup for now, maybe calling system
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: ::std::os::raw::c_int,
+            _target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            true as _
+        }
+    }
+}
+
+impl LifeSpanHandlerImpl {
+    pub fn build() -> cef::LifeSpanHandler {
+        Self::new()
+    }
+}
+
 wrap_client! {
     pub(crate) struct SoftwareClientImpl {
         render_handler: cef::RenderHandler,
         display_handler: cef::DisplayHandler,
         context_menu_handler: cef::ContextMenuHandler,
+        life_span_handler: cef::LifeSpanHandler,
     }
 
     impl Client {
@@ -314,6 +346,10 @@ wrap_client! {
 
         fn context_menu_handler(&self) -> Option<cef::ContextMenuHandler> {
             Some(self.context_menu_handler.clone())
+        }
+
+        fn life_span_handler(&self) -> Option<cef::LifeSpanHandler> {
+            Some(self.life_span_handler.clone())
         }
     }
 }
@@ -325,6 +361,7 @@ impl SoftwareClientImpl {
             SoftwareOsrHandler::build(render_handler),
             DisplayHandlerImpl::build(cursor_type),
             ContextMenuHandlerImpl::build(),
+            LifeSpanHandlerImpl::build(),
         )
     }
 }
@@ -334,6 +371,7 @@ wrap_client! {
         render_handler: cef::RenderHandler,
         display_handler: cef::DisplayHandler,
         context_menu_handler: cef::ContextMenuHandler,
+        life_span_handler: cef::LifeSpanHandler,
     }
 
     impl Client {
@@ -347,6 +385,10 @@ wrap_client! {
 
         fn context_menu_handler(&self) -> Option<cef::ContextMenuHandler> {
             Some(self.context_menu_handler.clone())
+        }
+
+        fn life_span_handler(&self) -> Option<cef::LifeSpanHandler> {
+            Some(self.life_span_handler.clone())
         }
     }
 }
@@ -360,6 +402,7 @@ impl AcceleratedClientImpl {
             AcceleratedOsrHandler::build(render_handler),
             DisplayHandlerImpl::build(cursor_type),
             ContextMenuHandlerImpl::build(),
+            LifeSpanHandlerImpl::build(),
         )
     }
 }
