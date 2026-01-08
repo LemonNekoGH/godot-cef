@@ -1,6 +1,10 @@
 [package]
 name = "cef_app"
-edition = "2024"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 crate-type = ["rlib"]
@@ -8,3 +12,6 @@ crate-type = ["rlib"]
 [dependencies]
 cef = { workspace = true }
 winit = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true }

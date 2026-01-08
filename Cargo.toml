@@ -1,20 +1,37 @@
 [workspace]
 resolver = "3"
-members = ["cef_app", "gdcef", "gdcef_helper"]
+members = ["cef_app", "gdcef", "gdcef_helper", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/dsh0416/godot-cef"
 
 [workspace.dependencies]
 godot = { version = "0.4.5", features = ["api-4-5", "experimental-threads"] }
-cef = { version = "=143.4.0+143.0.13", features = ["sandbox", "accelerated_osr"] }
-cef-dll-sys = { version = "=143.4.0+143.0.13", features = ["sandbox"] }
+cef = { version = "=143.6.0+143.0.13", features = ["sandbox", "accelerated_osr"] }
+cef-dll-sys = { version = "=143.6.0+143.0.13", features = ["sandbox"] }
 process_path = "0.1.4"
 winit = "0.30.12"
 plist = { version = "1" }
 serde = { version = "1", features = ["derive"] }
 libloading = { version = "0.9.0" }
 wide = "1.0"
+ash = { version = "0.38", default-features = false, features = ["std", "debug", "loaded"] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging"
+] }
 objc2 = "0.6"
 objc2-metal = { version = "0.3", features = [
     "MTLDevice",
@@ -27,13 +44,6 @@ objc2-metal = { version = "0.3", features = [
     "MTLResource",
     "MTLPixelFormat",
 ] }
-ash = { version = "0.38", default-features = false, features = ["std", "debug", "loaded"] }
-windows = { version = "0.62", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_System_Threading",
-    "Win32_Graphics_Direct3D",
-    "Win32_Graphics_Direct3D12",
-    "Win32_Graphics_Dxgi",
-    "Win32_Graphics_Dxgi_Common",
-] }
+
+[profile.release]
+debug = "line-tables-only"

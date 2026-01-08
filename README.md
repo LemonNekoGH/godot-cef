@@ -28,8 +28,8 @@ A high-performance Chromium Embedded Framework (CEF) integration for Godot Engin
 
 ## 🛠️ Prerequisites
 
-- **Rust** (2024 Edition) — Install via [rustup](https://rustup.rs/)
-- **Godot 4.5** — Download from [godotengine.org](https://godotengine.org/)
+- **Rust** (1.92+) — Install via [rustup](https://rustup.rs/)
+- **Godot** (4.5+) — Download from [godotengine.org](https://godotengine.org/)
 - **CEF Binaries** — Automatically downloaded during build
 
 ## 📦 Building
@@ -44,35 +44,38 @@ This tool downloads and extracts the correct CEF binaries for your platform. For
 
 ### Step 2: Build the Project
 
-#### macOS
-
-On macOS, you need to create proper app bundles for CEF to function correctly:
+The xtask build system works on all platforms and automatically bundles CEF assets:
 
 ```bash
-# Build and bundle the helper subprocess app
-cargo run --bin bundle_app
+# Build and bundle everything for your platform
+cargo xtask bundle
 
-# Build and bundle the GDExtension framework
-cargo run --bin bundle_framework
+# For release builds:
+cargo xtask bundle --release
 ```
 
-This creates:
-- `target/debug/Godot CEF.app/` — The CEF helper app with all required frameworks
-- `target/debug/Godot CEF.framework/` — The GDExtension library bundle
+#### Platform-Specific Details
 
-#### Windows / Linux
+**macOS:**
+- Creates `target/debug/Godot CEF.app/` — The CEF helper app with all required frameworks
+- Creates `target/debug/Godot CEF.framework/` — The GDExtension library bundle
+- Additional commands available:
+  ```bash
+  cargo xtask bundle-app        # Build only the helper subprocess app
+  cargo xtask bundle-framework  # Build only the GDExtension framework
+  ```
 
-```bash
-# Build the GDExtension library
-cargo build --lib
+**Windows:**
+- Builds `gdcef.dll` and `gdcef_helper.exe`
+- Copies all required CEF DLLs and resources to `target/release/`
 
-# Build the helper subprocess
-cargo build --bin gdcef_helper
-```
+**Linux:**
+- Builds `libgdcef.so` and `gdcef_helper`
+- Copies all required CEF shared libraries and resources to `target/release/`
 
 ### Step 3: Copy to Your Godot Project
 
-Copy the built artifacts to your Godot project's addon folder:
+Copy the built artifacts from `target/release/` to your Godot project's addon folder:
 
 ```
 your-godot-project/
@@ -80,12 +83,26 @@ your-godot-project/
     └── godot_cef/
         └── bin/
             └── <platform>/
-                ├── Godot CEF.framework/     # (macOS: GDExtension)
-                ├── Godot CEF.app/           # (macOS: Helper app + CEF framework)
-                ├── libgdcef.so              # (Linux: GDExtension)
-                ├── gdcef.dll                # (Windows: GDExtension)
-                └── gdcef_helper[.exe]       # (Windows/Linux: Helper)
+                # macOS (aarch64-apple-darwin)
+                ├── Godot CEF.framework/     # GDExtension library bundle
+                └── Godot CEF.app/           # Helper app + CEF framework
+
+                # Windows (x86_64-pc-windows-msvc)
+                ├── gdcef.dll                # GDExtension library
+                ├── gdcef_helper.exe         # Helper subprocess
+                ├── libcef.dll               # CEF core library
+                ├── locales/                 # Locale resources
+                └── ...                      # Other CEF assets (see .gdextension)
+
+                # Linux (x86_64-unknown-linux-gnu)
+                ├── libgdcef.so              # GDExtension library
+                ├── gdcef_helper             # Helper subprocess
+                ├── libcef.so                # CEF core library
+                ├── locales/                 # Locale resources
+                └── ...                      # Other CEF assets (see .gdextension)
 ```
+
+See `addons/godot_cef/godot_cef.gdextension` for the complete list of required files per platform.
 
 ## 🚀 Usage
 
@@ -121,8 +138,8 @@ cef_texture.ime_finish_composing_text(false) # Finish composing
 
 ## 🛣️ Roadmap
 
-- [ ] Automatic Building Support
-- [ ] CI/CD Configuration
+- [x] Automatic Building Support
+- [x] CI/CD Configuration
 - [ ] Custom Scheme Support
 - [x] IPC Support
 - [ ] Better IME Support
