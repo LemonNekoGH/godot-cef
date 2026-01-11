@@ -465,24 +465,30 @@ func _on_load_error(url: String, error_code: int, error_text: String):
     # Show error page or retry
 ```
 
-### IME Methods
+### IME Support
 
-For input method editor (IME) support in text fields:
+CefTexture provides automatic Input Method Editor (IME) support for text input in web content. When you click on an input field in the browser, the system IME is automatically activated, allowing you to input text in languages like Chinese, Japanese, Korean, etc.
 
-```gdscript
-cef_texture.ime_commit_text("文字")        # Commit composed text
-cef_texture.ime_set_composition("入力中")   # Set composition string
-cef_texture.ime_cancel_composition()        # Cancel composition
-cef_texture.ime_finish_composing_text(false) # Finish composing
-```
+**How it works:**
+- When an input field gains focus in CEF, Godot's native IME is automatically activated
+- The IME candidate window is positioned near the text cursor in the browser
+- Composition text is forwarded to CEF in real-time
+- When the input field loses focus, IME is automatically deactivated
 
+**Platform and configuration notes:**
+- IME behavior depends on the underlying operating system and Godot's own IME support on that platform
+- You must have a system IME / input source configured and enabled for the languages you want to type
+- IME appearance and candidate window positioning may vary between platforms and window managers
+- On platforms where Godot does not expose native IME support, IME behavior in CefTexture may be limited or unavailable
+
+On platforms where Godot provides native IME integration, CefTexture works without additional configuration in this plugin. Refer to the platform support matrix above and the Godot documentation for details on per-platform IME support and any OS-level setup that may be required.
 ## 🛣️ Roadmap
 
 - [x] Automatic Building Support
 - [x] CI/CD Configuration
 - [x] Custom Scheme Support (`res://` protocol)
 - [x] IPC Support
-- [ ] Better IME Support
+- [x] Better IME Support
 - [ ] Gamepad Support
 - [x] Access to Godot Filesystem
 
