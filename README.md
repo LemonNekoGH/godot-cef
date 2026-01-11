@@ -26,13 +26,64 @@ A high-performance Chromium Embedded Framework (CEF) integration for Godot Engin
 4. Vulkan on Linux requires `VK_EXT_external_memory_dma_buf` to import DMABuf into VKImage. Godot's vulkan device doesn't start with such extensions enabled.
 5. On platforms where accelerated rendering is not yet implemented, the extension automatically falls back to software rendering using CPU-based frame buffers.
 
-## 🛠️ Prerequisites
+## 📦 Installation
+
+### For Users
+
+Download the latest pre-built binaries from the [Releases](https://github.com/nicholasccw/cef-godot/releases) page. Extract the addon to your Godot project's `addons/` folder and you're ready to go!
+
+### For Developers
+
+If you want to build from source or contribute to the project, follow the [build instructions](#-building-from-source) below.
+
+## 🔄 Comparison with Similar Projects
+
+There are several projects that bring web content into Godot. Here's how this project compares:
+
+| Feature | **Godot CEF** (this project) | [godot_wry](https://github.com/doceazedo/godot_wry) | [gdcef](https://github.com/Lecrapouille/gdcef) |
+|---------|------------------------------|-----------------------------------------------------|------------------------------------------------|
+| **Browser Engine** | Chromium (CEF) | Native OS webview (WRY) | Chromium (CEF) |
+| **Implementation** | Rust | Rust | C++ |
+| **Rendering** | Texture (OSR) | Window overlay | Texture (OSR) |
+| **GPU Acceleration** | ✅ Yes | ✅ Yes | ❌ Software only |
+| **3D Scene Support** | ✅ Yes | ❌ No (always on top) | ✅ Yes |
+| **HiDPI Aware** | ✅ Yes | ✅ Yes | ❌ No |
+| **Consistent Cross-Platform** | ✅ Same engine everywhere | ❌ Different engines | ✅ Same engine everywhere |
+| **JS ↔ GDScript IPC** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Godot Filesystem Access** | ✅ Yes (`res://`) | ✅ Yes | ❌ No |
+| **Project Export** | ✅ Yes | ✅ Yes | ❌ No |
+| **Headless CI Support** | ✅ Yes | ❌ No | ✅ Yes |
+| **Bundle Size** | Large (~100MB+) | Small (uses OS webview) | Large (~100MB+) |
+
+### When to Use Each
+
+**Choose Godot CEF (this project) if you need:**
+- GPU-accelerated web rendering for high performance
+- Smooth and high performance interactive UI
+- Web content as a texture in 3D scenes (e.g., in-game screens, VR/AR interfaces)
+- Consistent behavior across all platforms (same Chromium engine everywhere)
+- Modern Rust codebase with godot-rust
+
+**Choose godot_wry if you need:**
+- Minimal bundle size (uses the OS's built-in webview)
+- Simple overlay UI that doesn't need to be part of the 3D scene
+- Lightweight integration without bundling a full browser
+
+**Choose gdcef if you need:**
+- C++ codebase for a more mature CEF integration with more docs
+- Proven, mature implementation with longer history
+
+### Motivation
+
+The motivation for developing this project comes from our work-in-progress game, [Engram](https://store.steampowered.com/app/3928930/_Engram/). While our first demo version benefited greatly from an interactive UI written in Vue.js using godot_wry, we encountered the limitations of a wry-based browser solution. Since other implementations have long struggled with GPU-accelerated OSR, we decided to create our own solution.
+
+## 🛠️ Building from Source
+
+### Prerequisites
 
 - **Rust** (1.92+) — Install via [rustup](https://rustup.rs/)
 - **Godot** (4.5+) — Download from [godotengine.org](https://godotengine.org/)
 - **CEF Binaries** — Automatically downloaded during build
-
-## 📦 Building
 
 ### Step 1: Install the CEF Export Tool
 
@@ -257,47 +308,6 @@ cef_texture.ime_set_composition("入力中")   # Set composition string
 cef_texture.ime_cancel_composition()        # Cancel composition
 cef_texture.ime_finish_composing_text(false) # Finish composing
 ```
-
-## 🔄 Comparison with Similar Projects
-
-There are several projects that bring web content into Godot. Here's how this project compares:
-
-| Feature | **Godot CEF** (this project) | [godot_wry](https://github.com/doceazedo/godot_wry) | [gdcef](https://github.com/Lecrapouille/gdcef) |
-|---------|------------------------------|-----------------------------------------------------|------------------------------------------------|
-| **Browser Engine** | Chromium (CEF) | Native OS webview (WRY) | Chromium (CEF) |
-| **Implementation** | Rust | Rust | C++ |
-| **Rendering** | Texture (OSR) | Window overlay | Texture (OSR) |
-| **GPU Acceleration** | ✅ Yes | ✅ Yes | ❌ Software only |
-| **3D Scene Support** | ✅ Yes | ❌ No (always on top) | ✅ Yes |
-| **HiDPI Aware** | ✅ Yes | ✅ Yes | ❌ No |
-| **Consistent Cross-Platform** | ✅ Same engine everywhere | ❌ Different engines | ✅ Same engine everywhere |
-| **JS ↔ GDScript IPC** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Godot Filesystem Access** | ✅ Yes (`res://`) | ✅ Yes | ❌ No |
-| **Project Export** | ✅ Yes | ✅ Yes | ❌ No |
-| **Headless CI Support** | ✅ Yes | ❌ No | ✅ Yes |
-| **Bundle Size** | Large (~100MB+) | Small (uses OS webview) | Large (~100MB+) |
-
-### When to Use Each
-
-**Choose Godot CEF (this project) if you need:**
-- GPU-accelerated web rendering for high performance
-- Smooth and high performance interactive UI
-- Web content as a texture in 3D scenes (e.g., in-game screens, VR/AR interfaces)
-- Consistent behavior across all platforms (same Chromium engine everywhere)
-- Modern Rust codebase with godot-rust
-
-**Choose godot_wry if you need:**
-- Minimal bundle size (uses the OS's built-in webview)
-- Simple overlay UI that doesn't need to be part of the 3D scene
-- Lightweight integration without bundling a full browser
-
-**Choose gdcef if you need:**
-- C++ codebase for a more mature CEF integration with more docs
-- Proven, mature implementation with longer history
-
-### Motivation
-
-The motivation for developing this project comes from our work-in-progress game, [Engram](https://store.steampowered.com/app/3928930/_Engram/). While our first demo version benefited greatly from an interactive UI written in Vue.js using godot_wry, we encountered the limitations of a wry-based browser solution. Since other implementations have long struggled with GPU-accelerated OSR, we decided to create our own solution.
 
 ## 🛣️ Roadmap
 
