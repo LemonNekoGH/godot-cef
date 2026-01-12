@@ -32,6 +32,16 @@ A high-performance Chromium Embedded Framework (CEF) integration for Godot Engin
 
 Download the latest pre-built binaries from the [Releases](https://github.com/nicholasccw/cef-godot/releases) page. Extract the addon to your Godot project's `addons/` folder and you're ready to go!
 
+**macOS Users:** After adding the plugin folder to your `addons/` directory, navigate to the `addons/godot_cef` folder and run the `remove_quarantine.sh` script to remove macOS quarantine attributes and set executable permissions:
+
+```bash
+cd addons/godot_cef
+chmod +x remove_quarantine.sh
+./remove_quarantine.sh
+```
+
+This step is required because macOS adds quarantine attributes to files downloaded from the internet, which must be manually removed for the plugin to function properly.
+
 ### For Developers
 
 If you want to build from source or contribute to the project, follow the [build instructions](#-building-from-source) below.
