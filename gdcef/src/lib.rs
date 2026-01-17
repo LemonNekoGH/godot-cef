@@ -33,6 +33,7 @@ use crate::browser::{
     App, ImeCompositionQueue, ImeEnableQueue, LoadingStateEvent, LoadingStateQueue, MessageQueue,
     RenderMode, TitleChangeQueue, UrlChangeQueue,
 };
+use crate::error::CefError;
 use crate::utils::get_display_scale_factor;
 
 struct GodotCef;
@@ -142,7 +143,10 @@ impl CefTexture {
         // Enable focus so we receive FOCUS_ENTER/EXIT notifications and can forward to CEF
         self.base_mut().set_focus_mode(FocusMode::CLICK);
 
-        cef_init::cef_retain();
+        if let Err(e) = cef_init::cef_retain() {
+            godot::global::godot_error!("[CefTexture] {}", e);
+            return;
+        }
 
         // Create hidden LineEdit for IME proxy
         self.create_ime_proxy();
@@ -235,6 +239,12 @@ impl CefTexture {
     }
 
     fn create_browser(&mut self) {
+        if let Err(e) = self.try_create_browser() {
+            godot::global::godot_error!("[CefTexture] {}", e);
+        }
+    }
+
+    fn try_create_browser(&mut self) -> Result<(), CefError> {
         let logical_size = self.base().get_size();
         let dpi = self.get_pixel_scale_factor();
         let pixel_width = (logical_size.x * dpi) as i32;
@@ -280,7 +290,7 @@ impl CefTexture {
                 dpi,
                 pixel_width,
                 pixel_height,
-            )
+            )?
         } else {
             self.create_software_browser(
                 &window_info,
@@ -289,13 +299,13 @@ impl CefTexture {
                 dpi,
                 pixel_width,
                 pixel_height,
-            )
+            )?
         };
 
-        assert!(browser.is_some(), "failed to create browser");
-        self.app.browser = browser;
+        self.app.browser = Some(browser);
         self.last_size = logical_size;
         self.last_dpi = dpi;
+        Ok(())
     }
 
     fn should_use_accelerated_osr(&self) -> bool {
@@ -310,7 +320,7 @@ impl CefTexture {
         dpi: f32,
         pixel_width: i32,
         pixel_height: i32,
-    ) -> Option<cef::Browser> {
+    ) -> Result<cef::Browser, CefError> {
         let window_info = WindowInfo {
             bounds: cef::Rect {
                 x: 0,
@@ -341,35 +351,21 @@ impl CefTexture {
         let ime_composition_queue: ImeCompositionQueue = Arc::new(Mutex::new(None));
 
         let texture = ImageTexture::new_gd();
-        self.base_mut().set_texture(&texture);
-
-        self.app.render_mode = Some(RenderMode::Software {
-            frame_buffer,
-            texture,
-        });
-        self.app.render_size = Some(render_size);
-        self.app.device_scale_factor = Some(device_scale_factor);
-        self.app.cursor_type = Some(cursor_type);
-        self.app.message_queue = Some(message_queue.clone());
-        self.app.url_change_queue = Some(url_change_queue.clone());
-        self.app.title_change_queue = Some(title_change_queue.clone());
-        self.app.loading_state_queue = Some(loading_state_queue.clone());
-        self.app.ime_enable_queue = Some(ime_enable_queue.clone());
-        self.app.ime_composition_range = Some(ime_composition_queue.clone());
 
         let mut client = webrender::SoftwareClientImpl::build(
             render_handler,
             webrender::ClientQueues {
-                message_queue,
-                url_change_queue,
-                title_change_queue,
-                loading_state_queue,
-                ime_enable_queue,
-                ime_composition_queue,
+                message_queue: message_queue.clone(),
+                url_change_queue: url_change_queue.clone(),
+                title_change_queue: title_change_queue.clone(),
+                loading_state_queue: loading_state_queue.clone(),
+                ime_enable_queue: ime_enable_queue.clone(),
+                ime_composition_queue: ime_composition_queue.clone(),
             },
         );
 
-        cef::browser_host_create_browser_sync(
+        // Attempt browser creation first, before updating any app state
+        let browser = cef::browser_host_create_browser_sync(
             Some(&window_info),
             Some(&mut client),
             Some(&self.url.to_string().as_str().into()),
@@ -377,6 +373,27 @@ impl CefTexture {
             None,
             context,
         )
+        .ok_or_else(|| {
+            CefError::BrowserCreationFailed("browser_host_create_browser_sync returned None".into())
+        })?;
+
+        // Browser created successfully - now update app state
+        self.base_mut().set_texture(&texture);
+        self.app.render_mode = Some(RenderMode::Software {
+            frame_buffer,
+            texture,
+        });
+        self.app.render_size = Some(render_size);
+        self.app.device_scale_factor = Some(device_scale_factor);
+        self.app.cursor_type = Some(cursor_type);
+        self.app.message_queue = Some(message_queue);
+        self.app.url_change_queue = Some(url_change_queue);
+        self.app.title_change_queue = Some(title_change_queue);
+        self.app.loading_state_queue = Some(loading_state_queue);
+        self.app.ime_enable_queue = Some(ime_enable_queue);
+        self.app.ime_composition_range = Some(ime_composition_queue);
+
+        Ok(browser)
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -388,7 +405,7 @@ impl CefTexture {
         dpi: f32,
         pixel_width: i32,
         pixel_height: i32,
-    ) -> Option<cef::Browser> {
+    ) -> Result<cef::Browser, CefError> {
         let importer = match GodotTextureImporter::new() {
             Some(imp) => imp,
             None => {
@@ -407,7 +424,7 @@ impl CefTexture {
         };
 
         // Create the RD texture first
-        let (rd_texture_rid, texture_2d_rd) = render::create_rd_texture(pixel_width, pixel_height);
+        let (rd_texture_rid, texture_2d_rd) = render::create_rd_texture(pixel_width, pixel_height)?;
 
         // Create shared render state with the importer and destination texture
         let render_state = Arc::new(Mutex::new(AcceleratedRenderState::new(
@@ -434,8 +451,40 @@ impl CefTexture {
         let ime_enable_queue: ImeEnableQueue = Arc::new(Mutex::new(VecDeque::new()));
         let ime_composition_queue: ImeCompositionQueue = Arc::new(Mutex::new(None));
 
-        self.base_mut().set_texture(&texture_2d_rd);
+        let mut client = webrender::AcceleratedClientImpl::build(
+            render_handler,
+            cursor_type.clone(),
+            webrender::ClientQueues {
+                message_queue: message_queue.clone(),
+                url_change_queue: url_change_queue.clone(),
+                title_change_queue: title_change_queue.clone(),
+                loading_state_queue: loading_state_queue.clone(),
+                ime_enable_queue: ime_enable_queue.clone(),
+                ime_composition_queue: ime_composition_queue.clone(),
+            },
+        );
 
+        // Attempt browser creation first, before updating any app state
+        let browser = match cef::browser_host_create_browser_sync(
+            Some(window_info),
+            Some(&mut client),
+            Some(&self.url.to_string().as_str().into()),
+            Some(browser_settings),
+            None,
+            context,
+        ) {
+            Some(browser) => browser,
+            None => {
+                // Browser creation failed - clean up the RD texture to prevent leak
+                render::free_rd_texture(rd_texture_rid);
+                return Err(CefError::BrowserCreationFailed(
+                    "browser_host_create_browser_sync returned None (accelerated)".into(),
+                ));
+            }
+        };
+
+        // Browser created successfully - now update app state
+        self.base_mut().set_texture(&texture_2d_rd);
         self.app.render_mode = Some(RenderMode::Accelerated {
             render_state,
             texture_2d_rd,
@@ -443,34 +492,14 @@ impl CefTexture {
         self.app.render_size = Some(render_size);
         self.app.device_scale_factor = Some(device_scale_factor);
         self.app.cursor_type = Some(cursor_type);
-        self.app.message_queue = Some(message_queue.clone());
-        self.app.url_change_queue = Some(url_change_queue.clone());
-        self.app.title_change_queue = Some(title_change_queue.clone());
-        self.app.loading_state_queue = Some(loading_state_queue.clone());
-        self.app.ime_enable_queue = Some(ime_enable_queue.clone());
-        self.app.ime_composition_range = Some(ime_composition_queue.clone());
+        self.app.message_queue = Some(message_queue);
+        self.app.url_change_queue = Some(url_change_queue);
+        self.app.title_change_queue = Some(title_change_queue);
+        self.app.loading_state_queue = Some(loading_state_queue);
+        self.app.ime_enable_queue = Some(ime_enable_queue);
+        self.app.ime_composition_range = Some(ime_composition_queue);
 
-        let mut client = webrender::AcceleratedClientImpl::build(
-            render_handler,
-            self.app.cursor_type.clone().unwrap(),
-            webrender::ClientQueues {
-                message_queue,
-                url_change_queue,
-                title_change_queue,
-                loading_state_queue,
-                ime_enable_queue,
-                ime_composition_queue,
-            },
-        );
-
-        cef::browser_host_create_browser_sync(
-            Some(window_info),
-            Some(&mut client),
-            Some(&self.url.to_string().as_str().into()),
-            Some(browser_settings),
-            None,
-            context,
-        )
+        Ok(browser)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -482,7 +511,7 @@ impl CefTexture {
         dpi: f32,
         pixel_width: i32,
         pixel_height: i32,
-    ) -> Option<cef::Browser> {
+    ) -> Result<cef::Browser, CefError> {
         self.create_software_browser(
             window_info,
             browser_settings,
@@ -617,7 +646,13 @@ impl CefTexture {
                 render::free_rd_texture(state.dst_rd_rid);
 
                 let (new_rd_rid, new_texture_2d_rd) =
-                    render::create_rd_texture(new_w as i32, new_h as i32);
+                    match render::create_rd_texture(new_w as i32, new_h as i32) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            godot::global::godot_error!("[CefTexture] {}", e);
+                            return;
+                        }
+                    };
 
                 state.dst_rd_rid = new_rd_rid;
                 state.dst_width = new_w;
