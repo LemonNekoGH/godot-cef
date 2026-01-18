@@ -370,5 +370,24 @@ pub fn is_supported() -> bool {
     NativeTextureImporter::new().is_some() && RenderBackend::detect().supports_accelerated_osr()
 }
 
+pub fn get_godot_adapter_luid() -> Option<(i32, u32)> {
+    let mut rd = RenderingServer::singleton().get_rendering_device()?;
+    let device_ptr = rd.get_driver_resource(DriverResource::LOGICAL_DEVICE, Rid::Invalid, 0);
+
+    if device_ptr == 0 {
+        godot_warn!("[AcceleratedOSR/Windows] Failed to get D3D12 device for LUID query");
+        return None;
+    }
+
+    let device: ID3D12Device = unsafe { ID3D12Device::from_raw(device_ptr as *mut c_void) };
+    let luid = unsafe { device.GetAdapterLuid() };
+    godot_print!("[AcceleratedOSR/Windows] Godot adapter LUID: {:?}", luid);
+
+    // Device is from Godot, we don't need to close it
+    std::mem::forget(device);
+
+    Some((luid.HighPart, luid.LowPart))
+}
+
 unsafe impl Send for GodotTextureImporter {}
 unsafe impl Sync for GodotTextureImporter {}
