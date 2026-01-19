@@ -46,10 +46,50 @@ pub enum GodotRenderBackend {
     Vulkan,
 }
 
+#[derive(Clone, Default)]
+pub struct SecurityConfig {
+    /// Allow loading insecure (HTTP) content in HTTPS pages.
+    pub allow_insecure_content: bool,
+    /// Ignore SSL/TLS certificate errors.
+    pub ignore_certificate_errors: bool,
+    /// Disable web security (CORS, same-origin policy).
+    pub disable_web_security: bool,
+}
+
+/// Adapter LUID (Locally Unique Identifier) for GPU selection on Windows.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AdapterLuid {
+    pub high: i32,
+    pub low: u32,
+}
+
+impl AdapterLuid {
+    pub fn new(high: i32, low: u32) -> Self {
+        Self { high, low }
+    }
+
+    pub fn to_arg_string(&self) -> String {
+        format!("{},{}", self.high, self.low)
+    }
+
+    pub fn from_arg_string(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split(',').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let high = parts[0].parse().ok()?;
+        let low = parts[1].parse().ok()?;
+        Some(Self { high, low })
+    }
+}
+
 #[derive(Clone)]
 pub struct OsrApp {
     godot_backend: GodotRenderBackend,
     enable_remote_debugging: bool,
+    security_config: SecurityConfig,
+    /// Adapter LUID for GPU selection (Windows only)
+    adapter_luid: Option<AdapterLuid>,
 }
 
 impl Default for OsrApp {
@@ -63,6 +103,8 @@ impl OsrApp {
         Self {
             godot_backend: GodotRenderBackend::Unknown,
             enable_remote_debugging: false,
+            security_config: SecurityConfig::default(),
+            adapter_luid: None,
         }
     }
 
@@ -70,6 +112,8 @@ impl OsrApp {
         Self {
             godot_backend,
             enable_remote_debugging: false,
+            security_config: SecurityConfig::default(),
+            adapter_luid: None,
         }
     }
 
@@ -81,7 +125,27 @@ impl OsrApp {
         Self {
             godot_backend,
             enable_remote_debugging,
+            security_config: SecurityConfig::default(),
+            adapter_luid: None,
         }
+    }
+
+    pub fn with_security_options(
+        godot_backend: GodotRenderBackend,
+        enable_remote_debugging: bool,
+        security_config: SecurityConfig,
+    ) -> Self {
+        Self {
+            godot_backend,
+            enable_remote_debugging,
+            security_config,
+            adapter_luid: None,
+        }
+    }
+
+    pub fn with_adapter_luid(mut self, high: i32, low: u32) -> Self {
+        self.adapter_luid = Some(AdapterLuid::new(high, low));
+        self
     }
 
     pub fn godot_backend(&self) -> GodotRenderBackend {
@@ -90,6 +154,14 @@ impl OsrApp {
 
     pub fn enable_remote_debugging(&self) -> bool {
         self.enable_remote_debugging
+    }
+
+    pub fn security_config(&self) -> &SecurityConfig {
+        &self.security_config
+    }
+
+    pub fn adapter_luid(&self) -> Option<AdapterLuid> {
+        self.adapter_luid
     }
 }
 
@@ -111,6 +183,9 @@ wrap_app! {
                 | cef::SchemeOptions::FETCH_ENABLED.get_raw()
                 | cef::SchemeOptions::CSP_BYPASSING.get_raw();
 
+            #[cfg(target_os = "windows")]
+            registrar.add_custom_scheme(Some(&"res".into()), options);
+            #[cfg(not(target_os = "windows"))]
             registrar.add_custom_scheme(Some(&"res".into()), options as i32);
         }
 
@@ -144,7 +219,7 @@ wrap_app! {
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {
             Some(BrowserProcessHandlerBuilder::build(
-                OsrBrowserProcessHandler::new(),
+                OsrBrowserProcessHandler::new(self.app.security_config().clone(), self.app.adapter_luid()),
             ))
         }
 
@@ -165,18 +240,22 @@ impl AppBuilder {
 #[derive(Clone)]
 pub struct OsrBrowserProcessHandler {
     is_cef_ready: RefCell<bool>,
+    security_config: SecurityConfig,
+    adapter_luid: Option<AdapterLuid>,
 }
 
 impl Default for OsrBrowserProcessHandler {
     fn default() -> Self {
-        Self::new()
+        Self::new(SecurityConfig::default(), None)
     }
 }
 
 impl OsrBrowserProcessHandler {
-    pub fn new() -> Self {
+    pub fn new(security_config: SecurityConfig, adapter_luid: Option<AdapterLuid>) -> Self {
         Self {
             is_cef_ready: RefCell::new(false),
+            security_config,
+            adapter_luid,
         }
     }
 }
@@ -196,12 +275,28 @@ wrap_browser_process_handler! {
                 return;
             };
 
-            command_line.append_switch(Some(&"disable-web-security".into()));
-            command_line.append_switch(Some(&"allow-running-insecure-content".into()));
+            let security_config = &self.handler.security_config;
+            if security_config.disable_web_security {
+                command_line.append_switch(Some(&"disable-web-security".into()));
+            }
+            if security_config.allow_insecure_content {
+                command_line.append_switch(Some(&"allow-running-insecure-content".into()));
+            }
+            if security_config.ignore_certificate_errors {
+                command_line.append_switch(Some(&"ignore-certificate-errors".into()));
+                command_line.append_switch(Some(&"ignore-ssl-errors".into()));
+            }
+
             command_line.append_switch(Some(&"disable-session-crashed-bubble".into()));
-            command_line.append_switch(Some(&"ignore-certificate-errors".into()));
-            command_line.append_switch(Some(&"ignore-ssl-errors".into()));
             command_line.append_switch(Some(&"enable-logging=stderr".into()));
+
+            if let Some(luid) = &self.handler.adapter_luid {
+                let luid_str = luid.to_arg_string();
+                command_line.append_switch_with_value(
+                    Some(&"godot-adapter-luid".into()),
+                    Some(&luid_str.as_str().into()),
+                );
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::accelerated_osr::{GodotTextureImporter, PlatformSharedTextureInfo};
+use crate::accelerated_osr::AcceleratedRenderState;
 
 /// Queue for IPC messages from the browser to Godot.
 pub type MessageQueue = Arc<Mutex<VecDeque<String>>>;
@@ -55,6 +55,17 @@ pub type ImeEnableQueue = Arc<Mutex<VecDeque<bool>>>;
 /// Shared state for IME composition range.
 pub type ImeCompositionQueue = Arc<Mutex<Option<ImeCompositionRange>>>;
 
+#[derive(Debug, Clone)]
+pub struct ConsoleMessageEvent {
+    pub level: u32,
+    pub message: String,
+    pub source: String,
+    pub line: i32,
+}
+
+/// Queue for console messages from the browser to Godot.
+pub type ConsoleMessageQueue = Arc<Mutex<VecDeque<ConsoleMessageEvent>>>;
+
 /// Rendering mode for the CEF browser.
 ///
 /// Determines whether the browser uses software (CPU) rendering or
@@ -70,18 +81,11 @@ pub enum RenderMode {
     /// GPU-accelerated rendering using platform-specific shared textures.
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     Accelerated {
-        /// Shared texture info from CEF's accelerated paint callback.
-        texture_info: Arc<Mutex<PlatformSharedTextureInfo>>,
-        /// Platform-specific texture importer for GPU-to-GPU copy.
-        importer: GodotTextureImporter,
-        /// The RenderingDevice texture RID (for native handle access).
-        rd_texture_rid: Rid,
+        /// Shared render state containing importer and pending copy tracking.
+        /// This is shared with the render handler for immediate GPU copy in on_accelerated_paint.
+        render_state: Arc<Mutex<AcceleratedRenderState>>,
         /// The Texture2DRD wrapper for display in TextureRect.
         texture_2d_rd: Gd<Texture2Drd>,
-        /// Current texture width.
-        texture_width: u32,
-        /// Current texture height.
-        texture_height: u32,
     },
 }
 
@@ -113,4 +117,6 @@ pub struct App {
     pub ime_enable_queue: Option<ImeEnableQueue>,
     /// Shared IME composition range for caret positioning.
     pub ime_composition_range: Option<ImeCompositionQueue>,
+    /// Queue for console messages from the browser.
+    pub console_message_queue: Option<ConsoleMessageQueue>,
 }

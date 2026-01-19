@@ -9,6 +9,8 @@ use crate::utils::get_framework_path;
 use crate::utils::get_subprocess_path;
 
 use crate::accelerated_osr::RenderBackend;
+use crate::error::{CefError, CefResult};
+use cef_app::SecurityConfig;
 
 struct CefState {
     ref_count: usize,
@@ -20,17 +22,18 @@ static CEF_STATE: Mutex<CefState> = Mutex::new(CefState {
     initialized: false,
 });
 
-pub fn cef_retain() {
+pub fn cef_retain_with_security(security_config: SecurityConfig) -> CefResult<()> {
     let mut state = CEF_STATE.lock().unwrap();
 
     if state.ref_count == 0 {
-        load_cef_framework();
+        load_cef_framework()?;
         cef::api_hash(cef::sys::CEF_API_VERSION_LAST, 0);
-        initialize_cef();
+        initialize_cef(security_config)?;
         state.initialized = true;
     }
 
     state.ref_count += 1;
+    Ok(())
 }
 
 pub fn cef_release() {
@@ -50,16 +53,18 @@ pub fn cef_release() {
 
 /// Loads the CEF framework library (macOS-specific)
 #[cfg(target_os = "macos")]
-fn load_cef_framework() {
-    match get_framework_path() {
-        Ok(framework_path) => cef_app::load_cef_framework_from_path(&framework_path),
-        Err(e) => panic!("Failed to get CEF framework path: {}", e),
-    }
+fn load_cef_framework() -> CefResult<()> {
+    let framework_path = get_framework_path().map_err(|e| {
+        CefError::FrameworkLoadFailed(format!("Failed to get CEF framework path: {}", e))
+    })?;
+    cef_app::load_cef_framework_from_path(&framework_path);
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
-fn load_cef_framework() {
+fn load_cef_framework() -> CefResult<()> {
     // No-op on other platforms
+    Ok(())
 }
 
 /// Loads the CEF sandbox (macOS-specific)
@@ -100,22 +105,39 @@ fn should_enable_remote_debugging() -> bool {
 }
 
 /// Initializes CEF with the given settings
-fn initialize_cef() {
+fn initialize_cef(security_config: SecurityConfig) -> CefResult<()> {
     let args = cef::args::Args::new();
     let godot_backend = detect_godot_render_backend();
     let enable_remote_debugging = should_enable_remote_debugging();
-    let mut app = cef_app::AppBuilder::build(cef_app::OsrApp::with_options(
+
+    #[allow(unused_mut)]
+    let mut osr_app = cef_app::OsrApp::with_security_options(
         godot_backend,
         enable_remote_debugging,
-    ));
+        security_config,
+    );
+
+    #[cfg(target_os = "windows")]
+    {
+        use crate::accelerated_osr::get_godot_adapter_luid;
+        if let Some((high, low)) = get_godot_adapter_luid() {
+            godot::global::godot_print!(
+                "[CefInit] Godot adapter LUID: {},{} - will pass to CEF subprocesses",
+                high,
+                low
+            );
+            osr_app = osr_app.with_adapter_luid(high, low);
+        }
+    }
+
+    let mut app = cef_app::AppBuilder::build(osr_app);
 
     #[cfg(target_os = "macos")]
     load_sandbox(args.as_main_args());
 
-    let subprocess_path = match get_subprocess_path() {
-        Ok(path) => path,
-        Err(e) => panic!("Failed to get subprocess path: {}", e),
-    };
+    let subprocess_path = get_subprocess_path().map_err(|e| {
+        CefError::InitializationFailed(format!("Failed to get subprocess path: {}", e))
+    })?;
 
     let user_data_dir = PathBuf::from(Os::singleton().get_user_data_dir().to_string());
     let root_cache_path = user_data_dir.join("Godot CEF/Cache");
@@ -123,35 +145,54 @@ fn initialize_cef() {
     let settings = Settings {
         browser_subprocess_path: subprocess_path
             .to_str()
-            .expect("subprocess path is not valid UTF-8")
+            .ok_or_else(|| {
+                CefError::InitializationFailed("subprocess path is not valid UTF-8".to_string())
+            })?
             .into(),
         windowless_rendering_enabled: true as _,
         external_message_pump: true as _,
         log_severity: cef::LogSeverity::DEFAULT as _,
         root_cache_path: root_cache_path
             .to_str()
-            .expect("cache path is not valid UTF-8")
+            .ok_or_else(|| {
+                CefError::InitializationFailed("cache path is not valid UTF-8".to_string())
+            })?
             .into(),
         ..Default::default()
     };
 
     #[cfg(target_os = "macos")]
     let settings = {
-        let framework_path = get_framework_path().expect("Failed to get framework path");
+        let framework_path = get_framework_path().map_err(|e| {
+            CefError::InitializationFailed(format!("Failed to get framework path: {}", e))
+        })?;
         let main_bundle_path = get_subprocess_path()
-            .expect("Failed to get subprocess path")
+            .map_err(|e| {
+                CefError::InitializationFailed(format!("Failed to get subprocess path: {}", e))
+            })?
             .join("../../..")
             .canonicalize()
-            .expect("Failed to canonicalize main bundle path");
+            .map_err(|e| {
+                CefError::InitializationFailed(format!(
+                    "Failed to canonicalize main bundle path: {}",
+                    e
+                ))
+            })?;
 
         Settings {
             framework_dir_path: framework_path
                 .to_str()
-                .expect("framework path is not valid UTF-8")
+                .ok_or_else(|| {
+                    CefError::InitializationFailed("framework path is not valid UTF-8".to_string())
+                })?
                 .into(),
             main_bundle_path: main_bundle_path
                 .to_str()
-                .expect("main bundle path is not valid UTF-8")
+                .ok_or_else(|| {
+                    CefError::InitializationFailed(
+                        "main bundle path is not valid UTF-8".to_string(),
+                    )
+                })?
                 .into(),
             ..settings
         }
@@ -164,5 +205,11 @@ fn initialize_cef() {
         std::ptr::null_mut(),
     );
 
-    assert_eq!(ret, 1, "failed to initialize CEF");
+    if ret != 1 {
+        return Err(CefError::InitializationFailed(
+            "CEF initialization returned error code".to_string(),
+        ));
+    }
+
+    Ok(())
 }
