@@ -36,24 +36,3 @@ features:
     title: Remote Debugging
     details: Debug with Chrome DevTools for streamlined development and testing workflows
 ---
-
-## Quick Example
-
-Integrate CEF browser into your Godot project with just a few lines of code:
-
-```gdscript
-extends Control
-
-func _ready():
-    var cef_texture = CefTexture.new()
-    cef_texture.url = "https://example.com"
-    cef_texture.enable_accelerated_osr = true
-    add_child(cef_texture)
-```
-
-## Get Started
-
-- [Installation Guide](https://github.com/dsh0416/godot-cef#installation) - Learn how to install and build Godot CEF
-- [API Reference](./api/) - Complete documentation for CefTexture methods, properties, and signals
-- [Usage Examples](https://github.com/dsh0416/godot-cef#usage) - Basic usage examples and best practices
-- [Platform Support](https://github.com/dsh0416/godot-cef#platform-support-matrix) - View compatibility across platforms
