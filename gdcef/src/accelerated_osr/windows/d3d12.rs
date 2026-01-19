@@ -1,4 +1,3 @@
-use super::RenderBackend;
 use godot::classes::RenderingServer;
 use godot::classes::rendering_device::DriverResource;
 use godot::global::{godot_error, godot_print, godot_warn};
@@ -16,7 +15,7 @@ use windows::Win32::Graphics::Direct3D12::{
 use windows::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObject};
 use windows::core::Interface;
 
-pub struct NativeTextureImporter {
+pub struct D3D12TextureImporter {
     device: std::mem::ManuallyDrop<ID3D12Device>,
     command_queue: ID3D12CommandQueue,
     command_allocator: ID3D12CommandAllocator,
@@ -26,19 +25,19 @@ pub struct NativeTextureImporter {
     device_removed_logged: bool,
 }
 
-impl NativeTextureImporter {
+impl D3D12TextureImporter {
     pub fn new() -> Option<Self> {
         let mut rd = RenderingServer::singleton()
             .get_rendering_device()
             .ok_or_else(|| {
-                godot_error!("[AcceleratedOSR/Windows] Failed to get RenderingDevice");
+                godot_error!("[AcceleratedOSR/D3D12] Failed to get RenderingDevice");
             })
             .ok()?;
 
         let device_ptr = rd.get_driver_resource(DriverResource::LOGICAL_DEVICE, Rid::Invalid, 0);
 
         if device_ptr == 0 {
-            godot_error!("[AcceleratedOSR/Windows] Failed to get D3D12 device from Godot");
+            godot_error!("[AcceleratedOSR/D3D12] Failed to get D3D12 device from Godot");
             return None;
         }
 
@@ -56,7 +55,7 @@ impl NativeTextureImporter {
         let command_queue: ID3D12CommandQueue = unsafe { device.CreateCommandQueue(&queue_desc) }
             .map_err(|e| {
                 godot_error!(
-                    "[AcceleratedOSR/Windows] Failed to create command queue: {:?}",
+                    "[AcceleratedOSR/D3D12] Failed to create command queue: {:?}",
                     e
                 )
             })
@@ -67,7 +66,7 @@ impl NativeTextureImporter {
             unsafe { device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT) }
                 .map_err(|e| {
                     godot_error!(
-                        "[AcceleratedOSR/Windows] Failed to create command allocator: {:?}",
+                        "[AcceleratedOSR/D3D12] Failed to create command allocator: {:?}",
                         e
                     )
                 })
@@ -80,19 +79,19 @@ impl NativeTextureImporter {
                 windows::Win32::Graphics::Direct3D12::D3D12_FENCE_FLAG_NONE,
             )
         }
-        .map_err(|e| godot_error!("[AcceleratedOSR/Windows] Failed to create fence: {:?}", e))
+        .map_err(|e| godot_error!("[AcceleratedOSR/D3D12] Failed to create fence: {:?}", e))
         .ok()?;
 
         let fence_event = unsafe { CreateEventW(None, false, false, None) }
             .map_err(|e| {
                 godot_error!(
-                    "[AcceleratedOSR/Windows] Failed to create fence event: {:?}",
+                    "[AcceleratedOSR/D3D12] Failed to create fence event: {:?}",
                     e
                 )
             })
             .ok()?;
 
-        godot_print!("[AcceleratedOSR/Windows] Using Godot's D3D12 device for accelerated OSR");
+        godot_print!("[AcceleratedOSR/D3D12] Using Godot's D3D12 device for accelerated OSR");
 
         Some(Self {
             device: std::mem::ManuallyDrop::new(device),
@@ -112,7 +111,7 @@ impl NativeTextureImporter {
             Ok(())
         } else if !self.device_removed_logged {
             godot_warn!(
-                "[AcceleratedOSR/Windows] D3D12 device removed: {:?}",
+                "[AcceleratedOSR/D3D12] D3D12 device removed: {:?}",
                 reason.err()
             );
             self.device_removed_logged = true;
@@ -142,11 +141,11 @@ impl NativeTextureImporter {
             if !self.device_removed_logged {
                 if device_reason.is_err() {
                     godot_warn!(
-                        "[AcceleratedOSR/Windows] Device removed: {:?}",
+                        "[AcceleratedOSR/D3D12] Device removed: {:?}",
                         device_reason.err()
                     );
                 } else {
-                    godot_warn!("[AcceleratedOSR/Windows] OpenSharedHandle failed: {:?}", e);
+                    godot_warn!("[AcceleratedOSR/D3D12] OpenSharedHandle failed: {:?}", e);
                 }
                 self.device_removed_logged = true;
             }
@@ -269,41 +268,14 @@ impl NativeTextureImporter {
 
         Ok(())
     }
-}
 
-pub struct GodotTextureImporter {
-    d3d12_importer: NativeTextureImporter,
-    current_texture_rid: Option<Rid>,
-}
-
-impl GodotTextureImporter {
-    pub fn new() -> Option<Self> {
-        let d3d12_importer = NativeTextureImporter::new()?;
-        let render_backend = RenderBackend::detect();
-
-        if !render_backend.supports_accelerated_osr() {
-            godot_warn!(
-                "[AcceleratedOSR/Windows] Render backend {:?} does not support accelerated OSR. \
-                 D3D12 backend is required on Windows.",
-                render_backend
-            );
-            return None;
-        }
-
-        godot_print!("[AcceleratedOSR/Windows] Using Godot's D3D12 backend for texture import");
-
-        Some(Self {
-            d3d12_importer,
-            current_texture_rid: None,
-        })
-    }
-
+    /// Import and copy a texture from CEF to Godot's RenderingDevice texture.
     pub fn import_and_copy(
         &mut self,
         info: &cef::AcceleratedPaintInfo,
         dst_rd_rid: Rid,
     ) -> Result<(), String> {
-        self.d3d12_importer.check_device_state()?;
+        self.check_device_state()?;
 
         let handle = HANDLE(info.shared_texture_handle);
         if handle.is_invalid() {
@@ -320,12 +292,8 @@ impl GodotTextureImporter {
             return Err("Destination RID is invalid".into());
         }
 
-        let src_resource = self.d3d12_importer.import_shared_handle(
-            handle,
-            width,
-            height,
-            *info.format.as_ref(),
-        )?;
+        let src_resource =
+            self.import_shared_handle(handle, width, height, *info.format.as_ref())?;
 
         // Get destination D3D12 resource from Godot's RenderingDevice
         let dst_resource = {
@@ -342,15 +310,14 @@ impl GodotTextureImporter {
             unsafe { ID3D12Resource::from_raw(resource_ptr as *mut c_void) }
         };
 
-        self.d3d12_importer
-            .copy_texture(&src_resource, &dst_resource)?;
+        self.copy_texture(&src_resource, &dst_resource)?;
 
         std::mem::forget(dst_resource);
         Ok(())
     }
 }
 
-impl Drop for NativeTextureImporter {
+impl Drop for D3D12TextureImporter {
     fn drop(&mut self) {
         if !self.fence_event.is_invalid() {
             let _ = unsafe { CloseHandle(self.fence_event) };
@@ -358,30 +325,18 @@ impl Drop for NativeTextureImporter {
     }
 }
 
-impl Drop for GodotTextureImporter {
-    fn drop(&mut self) {
-        if let Some(rid) = self.current_texture_rid.take() {
-            RenderingServer::singleton().free_rid(rid);
-        }
-    }
-}
-
-pub fn is_supported() -> bool {
-    NativeTextureImporter::new().is_some() && RenderBackend::detect().supports_accelerated_osr()
-}
-
 pub fn get_godot_adapter_luid() -> Option<(i32, u32)> {
     let mut rd = RenderingServer::singleton().get_rendering_device()?;
     let device_ptr = rd.get_driver_resource(DriverResource::LOGICAL_DEVICE, Rid::Invalid, 0);
 
     if device_ptr == 0 {
-        godot_warn!("[AcceleratedOSR/Windows] Failed to get D3D12 device for LUID query");
+        godot_warn!("[AcceleratedOSR/D3D12] Failed to get D3D12 device for LUID query");
         return None;
     }
 
     let device: ID3D12Device = unsafe { ID3D12Device::from_raw(device_ptr as *mut c_void) };
     let luid = unsafe { device.GetAdapterLuid() };
-    godot_print!("[AcceleratedOSR/Windows] Godot adapter LUID: {:?}", luid);
+    godot_print!("[AcceleratedOSR/D3D12] Godot adapter LUID: {:?}", luid);
 
     // Device is from Godot, we don't need to close it
     std::mem::forget(device);
@@ -389,5 +344,5 @@ pub fn get_godot_adapter_luid() -> Option<(i32, u32)> {
     Some((luid.HighPart, luid.LowPart))
 }
 
-unsafe impl Send for GodotTextureImporter {}
-unsafe impl Sync for GodotTextureImporter {}
+unsafe impl Send for D3D12TextureImporter {}
+unsafe impl Sync for D3D12TextureImporter {}

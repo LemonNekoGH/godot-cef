@@ -117,6 +117,8 @@ fn initialize_cef(security_config: SecurityConfig) -> CefResult<()> {
         security_config,
     );
 
+    // To make sure CEF uses the correct GPU adapter,
+    // we need to pass the adapter LUID to the subprocesses.
     #[cfg(target_os = "windows")]
     {
         use crate::accelerated_osr::get_godot_adapter_luid;
