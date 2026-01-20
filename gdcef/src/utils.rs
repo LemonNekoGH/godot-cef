@@ -171,6 +171,10 @@ fn get_executable_paths() -> CefResult<Vec<PathBuf>> {
         if let Ok(canonical) = chrome_sandbox.canonicalize() {
             paths.push(canonical);
         }
+        let gdcef_helper = dylib_path.join("../gdcef_helper");
+        if let Ok(canonical) = gdcef_helper.canonicalize() {
+            paths.push(canonical);
+        }
     }
 
     #[cfg(target_os = "macos")]
