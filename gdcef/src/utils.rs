@@ -122,7 +122,11 @@ pub fn ensure_executable_permissions() -> CefResult<()> {
         }
 
         let metadata = std::fs::metadata(&path).map_err(|e| {
-            CefError::ResourceNotFound(format!("Failed to get metadata for {}: {}", path.display(), e))
+            CefError::ResourceNotFound(format!(
+                "Failed to get metadata for {}: {}",
+                path.display(),
+                e
+            ))
         })?;
 
         let mut permissions = metadata.permissions();
