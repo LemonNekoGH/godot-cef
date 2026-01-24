@@ -19,6 +19,15 @@ A high-performance Chromium Embedded Framework (CEF) integration for Godot Engin
 - **Multi-Process Architecture** — Proper CEF subprocess handling for stability and consistency
 - **Remote Debugging** — Built-in Chrome DevTools support
 
+## Screenshots
+
+| | |
+|:---:|:---:|
+| ![GitHub rendered in Godot](./assets/screenshot_1.png) | ![Web content as 3D texture](./assets/screenshot_2.png) |
+| GitHub page rendered with full interactivity | Web content integrated into 3D scenes |
+| ![WebGPU Samples](./assets/screenshot_3.png) | ![WebGL Aquarium](./assets/screenshot_4.png) |
+| WebGPU demos running natively | WebGL Aquarium at ~120 FPS with 10,000 fish |
+
 ## Quick Start
 
 ### Installation
