@@ -1028,6 +1028,40 @@ impl DownloadHandlerImpl {
     }
 }
 
+wrap_request_handler! {
+    pub(crate) struct RequestHandlerImpl {
+        event_queues: EventQueuesHandle,
+    }
+
+    impl RequestHandler {
+        fn on_render_process_terminated(
+            &self,
+            _browser: Option<&mut Browser>,
+            status: cef::TerminationStatus,
+            _error_code: i32,
+            _error_string: Option<&cef::CefStringUtf16>,
+        ) {
+            let reason = match status {
+                cef::TerminationStatus::ABNORMAL_TERMINATION => "Abnormal Termination",
+                cef::TerminationStatus::PROCESS_WAS_KILLED => "Process Was Killed",
+                cef::TerminationStatus::PROCESS_CRASHED => "Process Crashed",
+                cef::TerminationStatus::PROCESS_OOM => "Process OOM",
+                _ => "Unknown",
+            };
+
+            if let Ok(mut queues) = self.event_queues.lock() {
+                queues.render_process_terminated.push_back((reason.to_string(), status));
+            }
+        }
+    }
+}
+
+impl RequestHandlerImpl {
+    pub fn build(event_queues: EventQueuesHandle) -> cef::RequestHandler {
+        Self::new(event_queues)
+    }
+}
+
 fn on_process_message_received(message: Option<&mut ProcessMessage>, ipc: &ClientIpcQueues) -> i32 {
     let Some(message) = message else { return 0 };
     let route = CefStringUtf16::from(&message.name()).to_string();
@@ -1098,6 +1132,7 @@ pub(crate) struct ClientHandlers {
     pub drag_handler: cef::DragHandler,
     pub audio_handler: Option<cef::AudioHandler>,
     pub download_handler: cef::DownloadHandler,
+    pub request_handler: cef::RequestHandler,
 }
 
 #[derive(Clone)]
@@ -1150,6 +1185,10 @@ wrap_client! {
             Some(self.handlers.download_handler.clone())
         }
 
+        fn request_handler(&self) -> Option<cef::RequestHandler> {
+            Some(self.handlers.request_handler.clone())
+        }
+
         fn on_process_message_received(
             &self,
             _browser: Option<&mut cef::Browser>,
@@ -1187,6 +1226,7 @@ fn build_client_handlers(
         drag_handler: DragHandlerImpl::build(queues.event_queues.clone()),
         audio_handler,
         download_handler: DownloadHandlerImpl::build(queues.event_queues.clone()),
+        request_handler: RequestHandlerImpl::build(queues.event_queues.clone()),
     }
 }
 
@@ -1243,6 +1283,10 @@ wrap_client! {
 
         fn download_handler(&self) -> Option<cef::DownloadHandler> {
             Some(self.handlers.download_handler.clone())
+        }
+
+        fn request_handler(&self) -> Option<cef::RequestHandler> {
+            Some(self.handlers.request_handler.clone())
         }
 
         fn on_process_message_received(
