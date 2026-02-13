@@ -76,15 +76,15 @@ func _on_message_received(message: String):
 
 ## Documentation
 
-For comprehensive API documentation, examples, and guides, visit the [full documentation](https://dsh0416.github.io/godot-cef/).
+For comprehensive API documentation, examples, and guides, visit the [full documentation](https://godotcef.org/).
 
 | Resource | Description |
 |----------|-------------|
-| [**API Reference**](https://dsh0416.github.io/godot-cef/api/) | Complete CefTexture API documentation |
-| [**Properties**](https://dsh0416.github.io/godot-cef/api/properties.html) | Node properties and configuration |
-| [**Methods**](https://dsh0416.github.io/godot-cef/api/methods.html) | Browser control and JavaScript execution |
-| [**Signals**](https://dsh0416.github.io/godot-cef/api/signals.html) | Events and notifications |
-| [**IME Support**](https://dsh0416.github.io/godot-cef/api/ime-support.html) | International text input |
+| [**API Reference**](https://godotcef.org/api/) | Complete CefTexture API documentation |
+| [**Properties**](https://godotcef.org/api/properties.html) | Node properties and configuration |
+| [**Methods**](https://godotcef.org/api/methods.html) | Browser control and JavaScript execution |
+| [**Signals**](https://godotcef.org/api/signals.html) | Events and notifications |
+| [**IME Support**](https://godotcef.org/api/ime-support.html) | International text input |
 
 ## Platform Support
 
