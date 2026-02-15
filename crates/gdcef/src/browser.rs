@@ -5,7 +5,7 @@
 
 use cef::ImplBrowser;
 use cef_app::{CursorType, FrameBuffer, PhysicalSize, PopupState};
-use godot::classes::{ImageTexture, Texture2Drd};
+use godot::classes::{ImageTexture, Texture2D, Texture2Drd};
 use godot::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64};
@@ -320,6 +320,16 @@ pub enum RenderMode {
     },
 }
 
+impl RenderMode {
+    pub fn texture_2d(&self) -> Gd<Texture2D> {
+        match self {
+            Self::Software { texture, .. } => texture.clone().upcast(),
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            Self::Accelerated { texture_2d_rd, .. } => texture_2d_rd.clone().upcast(),
+        }
+    }
+}
+
 /// Shared popup state for <select> dropdowns and other browser popups.
 pub type PopupStateQueue = Arc<Mutex<PopupState>>;
 
@@ -376,6 +386,8 @@ pub struct App {
     pub state: Option<BrowserState>,
     /// Current drag state for this browser.
     pub drag_state: DragState,
+    /// Tracks whether this instance currently holds one `cef_retain()` reference.
+    pub cef_retained: bool,
 }
 
 impl App {
@@ -399,6 +411,19 @@ impl App {
     pub fn clear_runtime_state(&mut self) {
         self.state = None;
         self.drag_state = Default::default();
+    }
+
+    /// Marks that this instance has successfully called `cef_retain()`.
+    pub fn mark_cef_retained(&mut self) {
+        self.cef_retained = true;
+    }
+
+    /// Releases CEF only when this instance currently owns a retain reference.
+    pub fn release_cef_if_retained(&mut self) {
+        if self.cef_retained {
+            crate::cef_init::cef_release();
+            self.cef_retained = false;
+        }
     }
 }
 

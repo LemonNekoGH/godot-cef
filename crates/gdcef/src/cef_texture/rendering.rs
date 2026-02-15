@@ -1,11 +1,8 @@
-use super::CefTexture;
-use cef::ImplBrowserHost;
+use super::{CefTexture, backend};
+use godot::classes::TextureRect;
 use godot::classes::control::MouseFilter;
-use godot::classes::image::Format as ImageFormat;
 use godot::classes::texture_rect::ExpandMode;
-use godot::classes::{DisplayServer, Engine, Image, TextureRect};
 use godot::prelude::*;
-use software_render::{DestBuffer, PopupBuffer, composite_popup};
 
 use crate::browser::RenderMode;
 use crate::utils::get_display_scale_factor;
@@ -13,71 +10,24 @@ use crate::{cursor, render};
 
 impl CefTexture {
     pub(super) fn get_max_fps(&self) -> i32 {
-        // Check project setting first
-        let setting_fps = crate::settings::get_max_frame_rate();
-        if setting_fps > 0 {
-            return setting_fps;
-        }
-
-        // Fall back to Godot engine's max fps or screen refresh rate
-        let engine_cap_fps = Engine::singleton().get_max_fps();
-        let screen_cap_fps = DisplayServer::singleton().screen_get_refresh_rate().round() as i32;
-        if engine_cap_fps > 0 {
-            engine_cap_fps
-        } else if screen_cap_fps > 0 {
-            screen_cap_fps
-        } else {
-            60
-        }
+        backend::get_max_fps()
     }
 
     pub(super) fn handle_max_fps_change(&mut self) {
         let max_fps = self.get_max_fps();
-        if max_fps == self.last_max_fps {
-            return;
-        }
-
-        self.last_max_fps = max_fps;
-        if let Some(host) = self.app.host() {
-            host.set_windowless_frame_rate(max_fps);
-        }
+        backend::handle_max_fps_change(&self.app, &mut self.last_max_fps, max_fps);
     }
 
     pub(super) fn handle_size_change(&mut self) -> bool {
-        let current_dpi = self.get_pixel_scale_factor();
         let logical_size = self.base().get_size();
-        if logical_size.x <= 0.0 || logical_size.y <= 0.0 {
-            return false;
-        }
-
-        let size_diff = (logical_size - self.last_size).abs();
-        let dpi_diff = (current_dpi - self.last_dpi).abs();
-        if size_diff.x < 1e-6 && size_diff.y < 1e-6 && dpi_diff < 1e-6 {
-            return false;
-        }
-
-        let pixel_width = logical_size.x * current_dpi;
-        let pixel_height = logical_size.y * current_dpi;
-
-        if let Some(state) = self.app.state.as_ref() {
-            if let Ok(mut size) = state.render_size.lock() {
-                size.width = pixel_width;
-                size.height = pixel_height;
-            }
-
-            if let Ok(mut dpi) = state.device_scale_factor.lock() {
-                *dpi = current_dpi;
-            }
-        }
-
-        if let Some(host) = self.app.host() {
-            host.notify_screen_info_changed();
-            host.was_resized();
-        }
-
-        self.last_size = logical_size;
-        self.last_dpi = current_dpi;
-        true
+        let dpi = self.get_pixel_scale_factor();
+        backend::handle_size_change(
+            &self.app,
+            &mut self.last_size,
+            &mut self.last_dpi,
+            logical_size,
+            dpi,
+        )
     }
 
     pub(super) fn update_texture(&mut self) {
@@ -85,140 +35,8 @@ impl CefTexture {
             return;
         };
 
-        if let RenderMode::Software {
-            frame_buffer,
-            texture,
-        } = &mut state.render_mode
-        {
-            let Ok(mut fb) = frame_buffer.lock() else {
-                return;
-            };
-
-            let popup_metadata = state.popup_state.lock().ok().and_then(|popup| {
-                if popup.visible && !popup.buffer.is_empty() {
-                    Some((
-                        popup.width,
-                        popup.height,
-                        popup.rect.x,
-                        popup.rect.y,
-                        popup.dirty,
-                    ))
-                } else {
-                    None
-                }
-            });
-
-            let popup_dirty = popup_metadata
-                .as_ref()
-                .is_some_and(|(_, _, _, _, dirty)| *dirty);
-
-            if !fb.dirty && !popup_dirty {
-                return;
-            }
-
-            if fb.data.is_empty() {
-                return;
-            }
-
-            let width = fb.width as i32;
-            let height = fb.height as i32;
-            let display_scale = get_display_scale_factor();
-
-            let final_data =
-                if let Some((popup_width, popup_height, popup_x, popup_y, _)) = popup_metadata {
-                    let popup_buffer = state
-                        .popup_state
-                        .lock()
-                        .ok()
-                        .map(|popup| popup.buffer.clone());
-
-                    if let Some(popup_buffer) = popup_buffer {
-                        let mut composited = fb.data.clone();
-                        let scaled_x = (popup_x as f32 * display_scale) as i32;
-                        let scaled_y = (popup_y as f32 * display_scale) as i32;
-                        composite_popup(
-                            &mut DestBuffer {
-                                data: &mut composited,
-                                width: fb.width,
-                                height: fb.height,
-                            },
-                            &PopupBuffer {
-                                data: &popup_buffer,
-                                width: popup_width,
-                                height: popup_height,
-                                x: scaled_x,
-                                y: scaled_y,
-                            },
-                        );
-                        if let Ok(mut popup) = state.popup_state.lock() {
-                            popup.mark_clean();
-                        }
-                        composited
-                    } else {
-                        fb.data.clone()
-                    }
-                } else {
-                    fb.data.clone()
-                };
-
-            let byte_array = PackedByteArray::from(final_data.as_slice());
-
-            let image: Option<Gd<Image>> =
-                Image::create_from_data(width, height, false, ImageFormat::RGBA8, &byte_array);
-            if let Some(image) = image {
-                texture.set_image(&image);
-            }
-
-            fb.mark_clean();
-            return;
-        }
-
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        if let RenderMode::Accelerated {
-            render_state,
-            texture_2d_rd,
-        } = &mut state.render_mode
-        {
-            let Ok(mut accel_state) = render_state.lock() else {
-                return;
-            };
-
-            let texture_to_set = if let Some((new_w, new_h)) = accel_state.needs_resize.take()
-                && new_w > 0
-                && new_h > 0
-            {
-                render::free_rd_texture(accel_state.dst_rd_rid);
-
-                let (new_rd_rid, new_texture_2d_rd) =
-                    match render::create_rd_texture(new_w as i32, new_h as i32) {
-                        Ok(result) => result,
-                        Err(e) => {
-                            godot::global::godot_error!("[CefTexture] {}", e);
-                            return;
-                        }
-                    };
-
-                accel_state.dst_rd_rid = new_rd_rid;
-                accel_state.dst_width = new_w;
-                accel_state.dst_height = new_h;
-
-                *texture_2d_rd = new_texture_2d_rd.clone();
-                Some(new_texture_2d_rd)
-            } else {
-                None
-            };
-
-            if accel_state.has_pending_copy
-                && let Err(e) = accel_state.process_pending_copy()
-            {
-                godot::global::godot_error!("[CefTexture] Failed to process pending copy: {}", e);
-            }
-
-            drop(accel_state);
-
-            if let Some(tex) = texture_to_set {
-                self.base_mut().set_texture(&tex);
-            }
+        if let Some(tex) = backend::update_primary_texture(state, "CefTexture") {
+            self.base_mut().set_texture(&tex);
         }
 
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -362,9 +180,7 @@ impl CefTexture {
     }
 
     pub(super) fn request_external_begin_frame(&mut self) {
-        if let Some(host) = self.app.host() {
-            host.send_external_begin_frame();
-        }
+        backend::request_external_begin_frame(&self.app);
     }
 
     pub(super) fn update_cursor(&mut self) {
