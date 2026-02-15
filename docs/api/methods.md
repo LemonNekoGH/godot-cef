@@ -154,6 +154,64 @@ window.onIpcBinaryMessage = function(arrayBuffer) {
 };
 ```
 
+### `send_ipc_data(data: Variant)`
+
+Sends typed data from Godot to JavaScript through the CBOR IPC lane. This is useful when you want structured payloads without manual JSON serialization.
+
+Supported payloads include:
+- `null`, `bool`, `int`, `float`, `String`
+- `Array` of the above primitive types
+- `PackedByteArray` (as binary data)
+
+> Note: While `Dictionary` values can be sent, they are not yet mapped to plain JavaScript objects. For structured key/value data, prefer sending a JSON-serialized `String` and parsing it on the JavaScript side.
+
+```gdscript
+# Send structured data as JSON (recommended for key/value payloads)
+var payload := {
+    "type": "player_state",
+    "hp": 88,
+    "tags": ["tank", "boss"]
+}
+var payload_json := JSON.stringify(payload)
+cef_texture.send_ipc_data(payload_json)
+
+# Send raw bytes through typed lane
+var bytes := PackedByteArray([0xCA, 0xFE, 0xBA, 0xBE])
+cef_texture.send_ipc_data(bytes)
+```
+
+In your JavaScript (running in the CEF browser):
+
+```javascript
+// Legacy callback style (still supported)
+window.onIpcDataMessage = function(data) {
+    console.log("Typed payload:", data);
+};
+
+// Listener API (Rust-managed, supports multiple subscribers)
+window.ipcDataMessage.addListener((data) => {
+    console.log("Listener got typed payload:", data);
+});
+```
+
+The `data` argument here will be one of the CBOR types currently supported by the renderer-side encoder/decoder:
+primitive values (numbers, strings, booleans, etc.) and raw bytes (for example, `Uint8Array`/`ArrayBuffer` when you send a `PackedByteArray` from Godot).
+CBOR maps / Godot `Dictionary` values are **not yet** mapped to JavaScript objects, so sending a `Dictionary` with `send_ipc_data` will not produce a decoded JS object on the renderer side.
+For structured data, encode it yourself into a supported form (for example, a JSON string or a binary representation) before sending.
+## JavaScript IPC APIs
+
+Godot CEF exposes three send functions in the renderer:
+- `window.sendIpcMessage(string)`
+- `window.sendIpcBinaryMessage(arrayBuffer)`
+- `window.sendIpcData(anySupportedValue)`
+
+For receiving messages in JavaScript, both styles are supported:
+- Legacy callbacks: `window.onIpcMessage`, `window.onIpcBinaryMessage`, `window.onIpcDataMessage`
+- Listener objects:
+  - `window.ipcMessage.{addListener,removeListener,hasListener}`
+  - `window.ipcBinaryMessage.{addListener,removeListener,hasListener}`
+  - `window.ipcDataMessage.{addListener,removeListener,hasListener}`
+
 ## Zoom Control
 
 ### `set_zoom_level(level: float)`

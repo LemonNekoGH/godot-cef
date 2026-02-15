@@ -309,9 +309,9 @@ dependencies = [
 
 [[package]]
 name = "cef"
-version = "145.0.0+145.0.22"
+version = "145.1.0+145.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b58bbf2e8a56823f72fe1421fe0d80c5208fc9539df9739bb92ab92958287d40"
+checksum = "b1f3c9ab3c4c1c4cd324c26fc40169c9a4c2e3a79cf2fb93c69749c6e20deae6"
 dependencies = [
  "anyhow",
  "ash",
@@ -337,9 +337,9 @@ dependencies = [
 
 [[package]]
 name = "cef-dll-sys"
-version = "145.0.0+145.0.22"
+version = "145.1.0+145.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07f35f0c390f36f5a11291751c766d3f09614fb334a93a6a71eb21bfc0d93573"
+checksum = "6973f336a09fecfa8b92d81692c58093d87183538c15eafeda0b4344e1a03492"
 dependencies = [
  "anyhow",
  "cmake",
@@ -352,6 +352,7 @@ name = "cef_app"
 version = "1.10.0"
 dependencies = [
  "cef",
+ "ciborium",
  "libloading 0.9.0",
  "windows-sys 0.61.2",
 ]
@@ -810,6 +811,7 @@ dependencies = [
  "cef",
  "cef-dll-sys",
  "cef_app",
+ "ciborium",
  "godot",
  "libc",
  "libloading 0.9.0",
@@ -1204,9 +1206,9 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.18.3"
+version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
+checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
 dependencies = [
  "console",
  "portable-atomic",
