@@ -295,9 +295,10 @@ impl CefIpcInspector {
             Some(target) => target,
             None => {
                 if let Some(mut empty) = self.empty_label.clone()
-                    && self.messages.is_empty() {
-                        empty.set_text("Assign target_cef_texture to a CefTexture node.");
-                    }
+                    && self.messages.is_empty()
+                {
+                    empty.set_text("Assign target_cef_texture to a CefTexture node.");
+                }
                 return;
             }
         };
@@ -310,9 +311,10 @@ impl CefIpcInspector {
         self.cef_texture = Some(target);
 
         if let Some(mut empty) = self.empty_label.clone()
-            && self.messages.is_empty() {
-                empty.set_text("Waiting for IPC messages...");
-            }
+            && self.messages.is_empty()
+        {
+            empty.set_text("Waiting for IPC messages...");
+        }
     }
 
     fn render_messages(&mut self) {
