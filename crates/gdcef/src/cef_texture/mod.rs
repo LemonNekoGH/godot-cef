@@ -179,6 +179,9 @@ impl CefTexture {
     fn ipc_data_message(data: Variant);
 
     #[signal]
+    fn debug_ipc_message(event: Variant);
+
+    #[signal]
     fn url_changed(url: GString);
 
     #[signal]

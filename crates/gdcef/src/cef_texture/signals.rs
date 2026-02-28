@@ -7,7 +7,7 @@ use godot::prelude::*;
 
 use std::collections::VecDeque;
 
-use crate::browser::{DragEvent, LoadingStateEvent};
+use crate::browser::{DebugIpcEvent, DragEvent, LoadingStateEvent};
 use crate::drag::DragDataInfo;
 
 macro_rules! emit_signal_variants {
@@ -149,6 +149,7 @@ impl CefTexture {
         self.emit_message_signals(&events.messages);
         self.emit_binary_message_signals(&events.binary_messages);
         self.emit_data_message_signals(&events.data_messages);
+        self.emit_debug_ipc_signals(&events.debug_ipc_events);
         self.emit_url_change_signals(&events.url_changes);
         self.emit_title_change_signals(&events.title_changes);
         self.emit_loading_state_signals(&events.loading_states);
@@ -195,6 +196,19 @@ impl CefTexture {
                     );
                 }
             }
+        }
+    }
+
+    fn emit_debug_ipc_signals(&mut self, events: &VecDeque<DebugIpcEvent>) {
+        for event in events {
+            let mut payload = godot::builtin::VarDictionary::new();
+            payload.set("direction", GString::from(event.direction.as_str()).to_variant());
+            payload.set("lane", GString::from(event.lane.as_str()).to_variant());
+            payload.set("body", GString::from(&event.body).to_variant());
+            payload.set("timestamp_unix_ms", event.timestamp_unix_ms.to_variant());
+            payload.set("body_size_bytes", event.body_size_bytes.to_variant());
+            self.base_mut()
+                .emit_signal("debug_ipc_message", &[payload.to_variant()]);
         }
     }
 
