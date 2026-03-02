@@ -3,3 +3,6 @@ target/
 
 node_modules/
 addons/godot_cef/bin/
+
+.DS_Store
+.envrc

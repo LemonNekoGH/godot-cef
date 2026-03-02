@@ -288,7 +288,7 @@ fn binary_preview(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+mod ipc_debug_tests {
     use super::*;
 
     #[test]
