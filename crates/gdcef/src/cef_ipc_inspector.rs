@@ -1,14 +1,17 @@
 use godot::builtin::{VarArray, VarDictionary, Variant, VariantType};
 use godot::classes::notify::ControlNotification;
 use godot::classes::{
-    Button, Control, Engine, IControl, Label, Node, OptionButton, Os, PackedScene, PanelContainer,
+    Button, Control, IControl, Label, Node, OptionButton, PackedScene, PanelContainer,
     ScrollContainer, VBoxContainer,
 };
 use godot::global::godot_warn;
 use godot::prelude::*;
 use std::collections::HashMap;
+use crate::utils::should_enable_ipc_inspector;
 
 const UI_SCENE_PATH: &str = "res://addons/godot_cef/inspector/cef_ipc_inspector_ui.tscn";
+const UI_CONTENT_SCENE_PATH: &str =
+    "res://addons/godot_cef/inspector/cef_ipc_inspector_ui_content.tscn";
 const ITEM_SCENE_PATH: &str = "res://addons/godot_cef/inspector/ipc_message_item.tscn";
 const MAX_MESSAGES: usize = 500;
 const DEFAULT_EXPANDED_MAX_CHARS: usize = 120;
@@ -94,6 +97,7 @@ impl CefIpcInspector {
     #[func]
     fn on_ready(&mut self) {
         if !Self::is_enabled_for_current_runtime() {
+            godot_warn!("[CefIpcInspector] Not in editor mode or debug build, skipping setup");
             return;
         }
 
@@ -184,7 +188,7 @@ impl CefIpcInspector {
     }
 
     fn is_enabled_for_current_runtime() -> bool {
-        Os::singleton().is_debug_build() || Engine::singleton().is_editor_hint()
+        should_enable_ipc_inspector()
     }
 
     fn ensure_ui(&mut self) {
@@ -209,20 +213,39 @@ impl CefIpcInspector {
             return;
         };
 
+        let content_packed = match try_load::<PackedScene>(UI_CONTENT_SCENE_PATH) {
+            Ok(scene) => scene,
+            Err(err) => {
+                godot_warn!(
+                    "[CefIpcInspector] Failed to load UI content scene {}: {}",
+                    UI_CONTENT_SCENE_PATH,
+                    err
+                );
+                return;
+            }
+        };
+
+        let Some(mut content_root) = content_packed.try_instantiate_as::<Control>() else {
+            godot_warn!("[CefIpcInspector] UI content root is not a Control");
+            return;
+        };
+
         ui_root.set_name("__ipc_inspector_ui");
+        content_root.set_name("__ipc_inspector_content");
+        ui_root.add_child(&content_root);
         self.base_mut().add_child(&ui_root);
 
-        self.toggle_button = ui_root.try_get_node_as("ToggleButton");
-        self.panel = ui_root.try_get_node_as("InspectorPanel");
-        self.title_label = ui_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/TitleLabel");
+        self.toggle_button = content_root.try_get_node_as("ToggleButton");
+        self.panel = content_root.try_get_node_as("InspectorPanel");
+        self.title_label = content_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/TitleLabel");
         self.direction_filter =
-            ui_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/DirectionFilter");
+            content_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/DirectionFilter");
         self.clear_button =
-            ui_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/ClearButton");
-        self.scroll = ui_root.try_get_node_as("InspectorPanel/Margin/VBox/Scroll");
+            content_root.try_get_node_as("InspectorPanel/Margin/VBox/Header/ClearButton");
+        self.scroll = content_root.try_get_node_as("InspectorPanel/Margin/VBox/Scroll");
         self.message_list =
-            ui_root.try_get_node_as("InspectorPanel/Margin/VBox/Scroll/MessageList");
-        self.empty_label = ui_root.try_get_node_as("InspectorPanel/Margin/VBox/EmptyLabel");
+            content_root.try_get_node_as("InspectorPanel/Margin/VBox/Scroll/MessageList");
+        self.empty_label = content_root.try_get_node_as("InspectorPanel/Margin/VBox/EmptyLabel");
 
         self.ui_root = Some(ui_root);
 
@@ -285,7 +308,7 @@ impl CefIpcInspector {
         }
 
         if let Some(mut toggle) = self.toggle_button.clone() {
-            toggle.set_text(if self.is_open { "Close" } else { "IPC" });
+            toggle.set_text(if self.is_open { "Close" } else { "IPC Inspector" });
         }
 
         self.update_title();

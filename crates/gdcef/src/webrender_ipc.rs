@@ -3,6 +3,7 @@ use cef_app::ipc_contract::{
     ROUTE_IME_CARET_POSITION, ROUTE_IPC_BINARY_RENDERER_TO_GODOT, ROUTE_IPC_DATA_RENDERER_TO_GODOT,
     ROUTE_IPC_RENDERER_TO_GODOT, ROUTE_TRIGGER_IME,
 };
+use crate::utils::should_enable_ipc_inspector;
 
 use crate::browser::ImeCompositionRange;
 use crate::webrender::ClientIpcQueues;
@@ -19,8 +20,6 @@ pub(crate) fn on_process_message_received(
             if let Some(args) = message.argument_list() {
                 let arg = args.string(0);
                 let msg_str = CefStringUtf16::from(&arg).to_string();
-
-                #[cfg(debug_assertions)]
                 let debug_event = crate::browser::DebugIpcEvent::text(
                     crate::browser::DebugIpcDirection::ToGodot,
                     msg_str.clone(),
@@ -29,8 +28,9 @@ pub(crate) fn on_process_message_received(
                 if let Ok(mut queues) = ipc.event_queues.lock() {
                     queues.messages.push_back(msg_str);
 
-                    #[cfg(debug_assertions)]
-                    queues.debug_ipc_events.push_back(debug_event);
+                    if should_enable_ipc_inspector() {
+                        queues.debug_ipc_events.push_back(debug_event);
+                    }
                 }
             }
         }
@@ -45,7 +45,6 @@ pub(crate) fn on_process_message_received(
                     if copied > 0 {
                         buffer.truncate(copied);
 
-                        #[cfg(debug_assertions)]
                         let debug_event = crate::browser::DebugIpcEvent::binary(
                             crate::browser::DebugIpcDirection::ToGodot,
                             &buffer,
@@ -54,8 +53,9 @@ pub(crate) fn on_process_message_received(
                         if let Ok(mut queues) = ipc.event_queues.lock() {
                             queues.binary_messages.push_back(buffer);
 
-                            #[cfg(debug_assertions)]
-                            queues.debug_ipc_events.push_back(debug_event);
+                            if should_enable_ipc_inspector() {
+                                queues.debug_ipc_events.push_back(debug_event);
+                            }
                         }
                     }
                 }
@@ -80,10 +80,6 @@ pub(crate) fn on_process_message_received(
                     if copied > 0 {
                         buffer.truncate(copied);
 
-                        // In release builds, avoid decoding CBOR on the IPC callback thread.
-                        // Only create the debug event (which may perform CBOR decoding) in
-                        // debug builds where the inspector is expected to be used.
-                        #[cfg(debug_assertions)]
                         let debug_event = crate::browser::DebugIpcEvent::data_from_cbor(
                             crate::browser::DebugIpcDirection::ToGodot,
                             &buffer,
@@ -92,8 +88,9 @@ pub(crate) fn on_process_message_received(
                         if let Ok(mut queues) = ipc.event_queues.lock() {
                             queues.data_messages.push_back(buffer);
 
-                            #[cfg(debug_assertions)]
-                            queues.debug_ipc_events.push_back(debug_event);
+                            if should_enable_ipc_inspector() {
+                                queues.debug_ipc_events.push_back(debug_event);
+                            }
                         }
                     }
                 }

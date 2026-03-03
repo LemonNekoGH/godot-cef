@@ -2,6 +2,8 @@ use crate::error::{CefError, CefResult};
 use godot::{classes::DisplayServer, obj::Singleton};
 use process_path::get_dylib_path;
 use std::path::PathBuf;
+use godot::classes::Os;
+use godot::classes::Engine;
 
 /// Returns the display scale factor for the primary screen.
 ///
@@ -214,4 +216,21 @@ fn get_executable_paths() -> CefResult<Vec<PathBuf>> {
     }
 
     Ok(paths)
+}
+
+/// Determines if IPC inspector should be enabled.
+///
+/// IPC inspector is only enabled when:
+/// - Godot is compiled in debug mode (Os.is_debug_build() returns true), OR
+/// - The game is running from the Godot editor (Engine.is_editor_hint() returns true)
+///
+/// This is a security measure to prevent remote debugging in production builds.
+pub(crate) fn should_enable_ipc_inspector() -> bool {
+    let os = Os::singleton();
+    let engine = Engine::singleton();
+
+    let is_debug_build = os.is_debug_build();
+    let is_editor_hint = engine.is_editor_hint();
+
+    is_debug_build || is_editor_hint
 }
