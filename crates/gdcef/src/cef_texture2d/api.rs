@@ -1,3 +1,5 @@
+use crate::utils::should_enable_ipc_inspector;
+
 #[godot_api]
 impl CefTexture2D {
     pub(crate) fn runtime_app(&self) -> &App {
@@ -200,13 +202,22 @@ impl CefTexture2D {
             return;
         };
 
+        let message_string = message.to_string();
         let route = cef::CefStringUtf16::from(ROUTE_IPC_GODOT_TO_RENDERER);
-        let msg_str: cef::CefStringUtf16 = message.to_string().as_str().into();
+        let msg_str: cef::CefStringUtf16 = message_string.as_str().into();
         if let Some(mut process_message) = cef::process_message_create(Some(&route)) {
             if let Some(argument_list) = process_message.argument_list() {
                 argument_list.set_string(0, Some(&msg_str));
             }
             frame.send_process_message(cef::ProcessId::RENDERER, Some(&mut process_message));
+
+            if let Ok(mut queues) = state.event_queues.lock()
+                && should_enable_ipc_inspector() {
+                queues.debug_ipc_events.push_back(crate::browser::DebugIpcEvent::text(
+                        crate::browser::DebugIpcDirection::ToRenderer,
+                        message_string,
+                    ));
+                }
         }
     }
 
@@ -243,6 +254,16 @@ impl CefTexture2D {
         };
         argument_list.set_binary(0, Some(&mut binary_value));
         frame.send_process_message(cef::ProcessId::RENDERER, Some(&mut process_message));
+        if let Ok(mut queues) = state.event_queues.lock()
+
+            && should_enable_ipc_inspector() {
+                queues
+                    .debug_ipc_events
+                    .push_back(crate::browser::DebugIpcEvent::binary(
+                        crate::browser::DebugIpcDirection::ToRenderer,
+                        &bytes,
+                    ));
+            }
     }
 
     #[func]
@@ -290,6 +311,17 @@ impl CefTexture2D {
         };
         argument_list.set_binary(0, Some(&mut binary_value));
         frame.send_process_message(cef::ProcessId::RENDERER, Some(&mut process_message));
+
+        if let Ok(mut queues) = state.event_queues.lock()
+            && should_enable_ipc_inspector() {
+            queues
+                .debug_ipc_events
+                .push_back(crate::browser::DebugIpcEvent::data_from_variant(
+                    crate::browser::DebugIpcDirection::ToRenderer,
+                    &data,
+                    bytes.len(),
+                ));
+            }
     }
 
     #[func]

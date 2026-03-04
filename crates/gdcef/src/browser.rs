@@ -10,6 +10,7 @@ use godot::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cookie::CookieEvent;
 
@@ -160,6 +161,172 @@ pub struct FindResultEvent {
     pub final_update: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DebugIpcDirection {
+    ToGodot,
+    ToRenderer,
+}
+
+impl DebugIpcDirection {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ToGodot => "to_godot",
+            Self::ToRenderer => "to_renderer",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DebugIpcLane {
+    Text,
+    Binary,
+    Data,
+}
+
+impl DebugIpcLane {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Binary => "binary",
+            Self::Data => "data",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DebugIpcEvent {
+    pub direction: DebugIpcDirection,
+    pub lane: DebugIpcLane,
+    pub body: String,
+    pub timestamp_unix_ms: i64,
+    pub body_size_bytes: i64,
+}
+
+impl DebugIpcEvent {
+    pub fn text(direction: DebugIpcDirection, message: String) -> Self {
+        let body_size_bytes = saturating_usize_to_i64(message.len());
+        Self::new(direction, DebugIpcLane::Text, message, body_size_bytes)
+    }
+
+    pub fn binary(direction: DebugIpcDirection, bytes: &[u8]) -> Self {
+        let body = binary_preview(bytes);
+        let body_size_bytes = saturating_usize_to_i64(bytes.len());
+        Self::new(direction, DebugIpcLane::Binary, body, body_size_bytes)
+    }
+
+    pub fn data_from_variant(
+        direction: DebugIpcDirection,
+        data: &Variant,
+        body_size_bytes: usize,
+    ) -> Self {
+        let body = data.stringify().to_string();
+        Self::new(
+            direction,
+            DebugIpcLane::Data,
+            body,
+            saturating_usize_to_i64(body_size_bytes),
+        )
+    }
+
+    pub fn data_from_cbor(direction: DebugIpcDirection, bytes: &[u8]) -> Self {
+        let body = match crate::ipc_data::decode_cbor_bytes_to_variant(bytes) {
+            Ok(data) => data.stringify().to_string(),
+            Err(err) => format!("<invalid cbor: {}>", err),
+        };
+        let body_size_bytes = saturating_usize_to_i64(bytes.len());
+        Self::new(direction, DebugIpcLane::Data, body, body_size_bytes)
+    }
+
+    fn new(
+        direction: DebugIpcDirection,
+        lane: DebugIpcLane,
+        body: String,
+        body_size_bytes: i64,
+    ) -> Self {
+        Self {
+            direction,
+            lane,
+            body,
+            timestamp_unix_ms: unix_timestamp_ms(),
+            body_size_bytes,
+        }
+    }
+}
+
+fn unix_timestamp_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| duration.as_millis().try_into().ok())
+        .unwrap_or(0)
+}
+
+fn saturating_usize_to_i64(value: usize) -> i64 {
+    value.try_into().unwrap_or(i64::MAX)
+}
+
+fn binary_preview(bytes: &[u8]) -> String {
+    const MAX_PREVIEW_BYTES: usize = 32;
+    if bytes.is_empty() {
+        return String::from("<empty binary payload>");
+    }
+
+    let preview_len = bytes.len().min(MAX_PREVIEW_BYTES);
+    let mut hex = String::with_capacity(preview_len * 3);
+    for (idx, byte) in bytes[..preview_len].iter().enumerate() {
+        if idx > 0 {
+            hex.push(' ');
+        }
+        hex.push_str(&format!("{:02X}", byte));
+    }
+
+    if bytes.len() > MAX_PREVIEW_BYTES {
+        format!("{} ...", hex)
+    } else {
+        hex
+    }
+}
+
+#[cfg(test)]
+mod ipc_debug_tests {
+    use super::*;
+
+    #[test]
+    fn binary_preview_empty_payload() {
+        let result = binary_preview(&[]);
+        assert_eq!(result, "<empty binary payload>");
+    }
+
+    #[test]
+    fn binary_preview_truncates_long_payload() {
+        // 40 bytes > MAX_PREVIEW_BYTES (32), so output should be truncated.
+        let bytes: Vec<u8> = (0u8..40u8).collect();
+        let result = binary_preview(&bytes);
+
+        // Expected hex for the first 32 bytes, uppercase, space-separated.
+        let expected_hex = bytes[..32]
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let expected = format!("{} ...", expected_hex);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn saturating_usize_to_i64_behaviour() {
+        // Normal small value converts exactly.
+        assert_eq!(saturating_usize_to_i64(42), 42i64);
+
+        // On platforms where usize is wider than 63 bits (e.g., 64-bit),
+        // very large values should saturate to i64::MAX.
+        if usize::BITS > 63 {
+            let large = usize::MAX;
+            assert_eq!(saturating_usize_to_i64(large), i64::MAX);
+        }
+    }
+}
 #[derive(Clone)]
 pub enum PendingPermissionDecision {
     Media {
@@ -220,6 +387,9 @@ pub struct EventQueues {
     pub binary_messages: VecDeque<Vec<u8>>,
     /// Typed IPC data messages from the browser encoded as CBOR bytes.
     pub data_messages: VecDeque<Vec<u8>>,
+    /// Unified debug events for IPC traffic in both directions.
+    pub debug_ipc_events: VecDeque<DebugIpcEvent>,
+
     /// URL change notifications.
     pub url_changes: VecDeque<String>,
     /// Title change notifications.

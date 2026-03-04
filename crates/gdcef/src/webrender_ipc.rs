@@ -1,3 +1,4 @@
+use crate::utils::should_enable_ipc_inspector;
 use cef::{CefStringUtf16, ImplBinaryValue, ImplListValue, ImplProcessMessage, ProcessMessage};
 use cef_app::ipc_contract::{
     ROUTE_IME_CARET_POSITION, ROUTE_IPC_BINARY_RENDERER_TO_GODOT, ROUTE_IPC_DATA_RENDERER_TO_GODOT,
@@ -19,8 +20,17 @@ pub(crate) fn on_process_message_received(
             if let Some(args) = message.argument_list() {
                 let arg = args.string(0);
                 let msg_str = CefStringUtf16::from(&arg).to_string();
+                let debug_event = crate::browser::DebugIpcEvent::text(
+                    crate::browser::DebugIpcDirection::ToGodot,
+                    msg_str.clone(),
+                );
+
                 if let Ok(mut queues) = ipc.event_queues.lock() {
                     queues.messages.push_back(msg_str);
+
+                    if should_enable_ipc_inspector() {
+                        queues.debug_ipc_events.push_back(debug_event);
+                    }
                 }
             }
         }
@@ -34,8 +44,18 @@ pub(crate) fn on_process_message_received(
                     let copied = binary_value.data(Some(&mut buffer), 0);
                     if copied > 0 {
                         buffer.truncate(copied);
+
+                        let debug_event = crate::browser::DebugIpcEvent::binary(
+                            crate::browser::DebugIpcDirection::ToGodot,
+                            &buffer,
+                        );
+
                         if let Ok(mut queues) = ipc.event_queues.lock() {
                             queues.binary_messages.push_back(buffer);
+
+                            if should_enable_ipc_inspector() {
+                                queues.debug_ipc_events.push_back(debug_event);
+                            }
                         }
                     }
                 }
@@ -59,8 +79,18 @@ pub(crate) fn on_process_message_received(
                     let copied = binary_value.data(Some(&mut buffer), 0);
                     if copied > 0 {
                         buffer.truncate(copied);
+
+                        let debug_event = crate::browser::DebugIpcEvent::data_from_cbor(
+                            crate::browser::DebugIpcDirection::ToGodot,
+                            &buffer,
+                        );
+
                         if let Ok(mut queues) = ipc.event_queues.lock() {
                             queues.data_messages.push_back(buffer);
+
+                            if should_enable_ipc_inspector() {
+                                queues.debug_ipc_events.push_back(debug_event);
+                            }
                         }
                     }
                 }

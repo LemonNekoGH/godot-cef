@@ -10,6 +10,7 @@ windows.x86_64 = "bin/x86_64-pc-windows-msvc/gdcef.dll"
 
 [icons]
 CefTexture = "icons/webview.png"
+CefIpcInspector = "icons/webview.png"
 
 [dependencies]
 
