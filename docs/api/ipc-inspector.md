@@ -8,6 +8,10 @@ It helps you verify:
 - The actual payload preview and byte size
 - Message order and timing
 
+## Demo Video
+
+<video src="../assets/ipc-inspector-demo.mp4" loop controls autoplay muted></video>
+
 ## Availability
 
 For safety, IPC inspector is only enabled when:
@@ -18,42 +22,14 @@ In release builds, the inspector UI is not initialized.
 
 ## Quick Start
 
-No scripting is required.
-
 1. Add both `CefTexture` and `CefIpcInspector` to your scene.
-2. Select the `CefIpcInspector` node in the editor.
-3. In the Inspector panel, drag your `CefTexture` node into `target_cef_texture`.
-4. Run the scene in editor/debug mode.
-5. Click `IPC Inspector` in the bottom-right corner to open the panel.
+    ![add-inspector-node](../assets/add-inspector-node.png)
+2. In the Inspector panel, drag your `CefTexture` node into `target_cef_texture`.
+    <video src="../assets/assign-target-cef-texture-en.mp4" loop controls autoplay muted></video>
+3. Run the scene in editor/debug mode.
+4. Click `IPC Inspector` in the bottom-right corner to open the panel.
 
 The inspector will start listening immediately after the target is assigned.
-
-### Optional: Assign Target in Script
-
-```gdscript
-@onready var browser: CefTexture = $CefTexture
-@onready var inspector: CefIpcInspector = $CefIpcInspector
-
-func _ready():
-    inspector.target_cef_texture = browser
-```
-
-## Generate Test Messages
-
-```gdscript
-func send_test_messages():
-    browser.send_ipc_message("hello from godot")
-    browser.send_ipc_binary_message(PackedByteArray([0xDE, 0xAD, 0xBE, 0xEF]))
-    browser.send_ipc_data(["score", 100, true])
-```
-
-From JavaScript:
-
-```javascript
-window.sendIpcMessage("hello from js");
-window.sendIpcBinaryMessage(new Uint8Array([1, 2, 3, 4]).buffer);
-window.sendIpcData(["inventory", "potion", 3]);
-```
 
 ## Panel Features
 
@@ -74,26 +50,6 @@ The inspector internally listens to `CefTexture.debug_ipc_message(event: Variant
 | `timestamp_unix_ms` | `int` | Unix timestamp in milliseconds |
 | `body_size_bytes` | `int` | Original payload size in bytes |
 
-## Demo Video
-
-Use both a short video and a static preview image in this section.
-
-- Video link template: `[IPC Inspector Demo](https://example.com/replace-with-your-video-link)`
-- Recommended length: `30-60` seconds
-- Suggested shots:
-  1. Open panel
-  2. Send one message per lane (`text` / `binary` / `data`)
-  3. Switch direction filter
-  4. Expand one long payload and press `Clear`
-
-If you host the video inside docs, put it under `docs/public/videos/` and embed:
-
-```html
-<video controls preload="metadata" style="width: 100%;">
-  <source src="/videos/cef-ipc-inspector-demo.mp4" type="video/mp4" />
-</video>
-```
-
 ## Troubleshooting
 
 - Panel never appears:
@@ -101,6 +57,6 @@ If you host the video inside docs, put it under `docs/public/videos/` and embed:
 - `Assign target_cef_texture to a CefTexture node.`:
   - Set `target_cef_texture` to the actual browser node.
 - No messages shown:
-  - Confirm messages are sent, and check the current direction filter.
+  - Confirm messages are sent, and check the current direction filter. You can also send quick test messages from the Chrome DevTools REPL.
 - Missing large data messages:
   - Oversized IPC data payloads can be dropped by safety limits and logged.
