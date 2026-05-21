@@ -17,6 +17,8 @@ foundation for runtime/settings behavior. It can be assigned directly to
 | `enable_accelerated_osr` | `bool` | `true` | Enable GPU-accelerated rendering |
 | `background_color` | `Color` | `Color(0, 0, 0, 0)` | Background color for the browser. Set alpha to 0 for transparent background, or use a solid color to disable transparency. |
 | `popup_policy` | `int` | `0` | Controls how popup windows are handled. `0` = BLOCK (suppress silently), `1` = REDIRECT (navigate current browser to popup URL), `2` = SIGNAL_ONLY (emit `popup_requested` signal). Can be changed at runtime. |
+| `preload_script` | `String` | `""` | JavaScript source executed once for the browser's main frame after the JS bridge is registered and before the document loads. Mutually exclusive with `preload_script_path`. |
+| `preload_script_path` | `String` | `""` | Godot file path for JavaScript source to preload. Supports Godot paths such as `res://` and `user://`. Mutually exclusive with `preload_script`. |
 
 ## CefTexture2D Properties
 
@@ -26,6 +28,8 @@ foundation for runtime/settings behavior. It can be assigned directly to
 | `enable_accelerated_osr` | `bool` | `true` | Enables accelerated OSR when supported, otherwise falls back to software rendering. |
 | `background_color` | `Color` | `Color(0, 0, 0, 0)` | Browser background color (supports transparency). |
 | `popup_policy` | `int` | `0` | Popup behavior policy: BLOCK/REDIRECT/SIGNAL_ONLY. |
+| `preload_script` | `String` | `""` | JavaScript source executed once for the browser's main frame after the JS bridge is registered and before the document loads. Mutually exclusive with `preload_script_path`. |
+| `preload_script_path` | `String` | `""` | Godot file path for JavaScript source to preload. Supports Godot paths such as `res://` and `user://`. Mutually exclusive with `preload_script`. |
 | `texture_size` | `Vector2i` | `Vector2i(1024, 1024)` | Logical browser texture size in pixels. |
 
 `CefTexture2D` v1 is intentionally render-only: it does not include built-in
@@ -59,6 +63,51 @@ var mat := StandardMaterial3D.new()
 mat.albedo_texture = browser_tex
 $MeshInstance3D.set_surface_override_material(0, mat)
 ```
+
+## Preload Scripts
+
+Use `preload_script` or `preload_script_path` to install trusted app-provided
+JavaScript before the page document loads. Preload runs after Godot CEF
+registers its built-in JavaScript bridge, so APIs such as
+`window.sendIpcMessage(...)` are available inside the preload script.
+
+Set preload properties before the browser instance is created. For `CefTexture`,
+this means before the node enters the scene tree or before its browser is
+otherwise initialized. For `CefTexture2D`, set them before the resource-backed
+browser is initialized by the scene using it. For a `CefTexture` already present
+in a scene, set these properties in the Inspector.
+
+```gdscript
+func _ready() -> void:
+    var browser := CefTexture.new()
+    browser.preload_script = """
+        window.appConfig = { locale: "en-US" };
+        window.sendIpcMessage("preload-ready");
+    """
+    browser.url = "res://ui/index.html"
+    add_child(browser)
+```
+
+For larger scripts, store the JavaScript in a file and set
+`preload_script_path`:
+
+```gdscript
+browser.preload_script_path = "res://browser/preload.js"
+browser.url = "https://example.com"
+```
+
+`preload_script` and `preload_script_path` are mutually exclusive. If both are
+non-empty, browser creation fails with an error. If `preload_script_path` cannot
+be opened or is not valid UTF-8, browser creation also fails.
+
+Preload only runs in the main frame. It does not run in iframes.
+
+::: warning Trusted code only
+Preload executes in the page's main JavaScript world. It is intended for trusted
+application setup, such as installing app globals or wiring IPC. It is not a
+security isolation boundary, and it should not contain secrets that the loaded
+page must not read.
+:::
 
 ## Project Settings
 

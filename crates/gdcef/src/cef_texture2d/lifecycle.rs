@@ -36,6 +36,8 @@ impl CefTexture2D {
             enable_accelerated_osr: self.enable_accelerated_osr,
             background_color: self.background_color,
             popup_policy: self.popup_policy,
+            preload_script: self.preload_script.clone(),
+            preload_script_path: self.preload_script_path.clone(),
             software_target_texture: Some(self.fallback_texture.clone()),
             log_prefix: "CefTexture2D",
         });

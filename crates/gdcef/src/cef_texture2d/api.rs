@@ -58,6 +58,26 @@ impl CefTexture2D {
     }
 
     #[func]
+    pub(crate) fn get_preload_script(&self) -> GString {
+        self.preload_script.clone()
+    }
+
+    #[func]
+    pub(crate) fn set_preload_script(&mut self, script: GString) {
+        self.preload_script = script;
+    }
+
+    #[func]
+    pub(crate) fn get_preload_script_path(&self) -> GString {
+        self.preload_script_path.clone()
+    }
+
+    #[func]
+    pub(crate) fn set_preload_script_path(&mut self, path: GString) {
+        self.preload_script_path = path;
+    }
+
+    #[func]
     pub(crate) fn get_texture_size_property(&self) -> Vector2i {
         self.texture_size
     }

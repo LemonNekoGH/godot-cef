@@ -70,11 +70,13 @@ impl CefTexture {
             enable_accelerated_osr: self.enable_accelerated_osr,
             background_color: self.background_color,
             popup_policy: self.popup_policy,
+            preload_script: self.preload_script.to_string(),
+            preload_script_path: self.preload_script_path.to_string(),
             software_target_texture: None,
             log_prefix: "CefTexture",
         };
         if let Err(err) = self.with_app_mut(|app| backend::try_create_browser(app, &params)) {
-            self.with_app_mut(|app| app.mark_browser_closed());
+            self.with_app_mut(|app| app.mark_browser_failed());
             return Err(err);
         }
         self.with_app_mut(|app| app.mark_browser_running());

@@ -1,7 +1,13 @@
 use adblock::lists::{FilterSet, ParseOptions};
-use cef::{BrowserSettings, ImplBrowser, ImplBrowserHost, RequestContextSettings, WindowInfo};
+use cef::{
+    BrowserSettings, CefStringUtf16, ImplBrowser, ImplBrowserHost, ImplDictionaryValue,
+    RequestContextSettings, WindowInfo,
+};
 use cef_app::PhysicalSize;
+use cef_app::ipc_contract::EXTRA_INFO_PRELOAD_SCRIPT;
+use godot::classes::FileAccess;
 use godot::classes::Image;
+use godot::classes::file_access::ModeFlags;
 use godot::classes::image::Format as ImageFormat;
 use godot::classes::{AudioServer, DisplayServer, Engine, ImageTexture, Texture2Drd};
 use godot::prelude::*;
@@ -29,6 +35,8 @@ pub(crate) struct BackendCreateParams {
     pub enable_accelerated_osr: bool,
     pub background_color: Color,
     pub popup_policy: i32,
+    pub preload_script: String,
+    pub preload_script_path: String,
     pub software_target_texture: Option<Gd<ImageTexture>>,
     pub log_prefix: &'static str,
 }
@@ -38,6 +46,8 @@ struct BrowserCreateParams {
     dpi: f32,
     pixel_width: i32,
     pixel_height: i32,
+    url: String,
+    preload_script: Option<String>,
     popup_policy: PopupPolicyFlag,
     permission_policy: crate::browser::PermissionPolicyFlag,
     permission_request_counter: crate::browser::PermissionRequestIdCounter,
@@ -100,6 +110,66 @@ pub(crate) fn should_use_accelerated_osr(enable_accelerated_osr: bool, log_prefi
         );
     }
     supported
+}
+
+fn resolve_preload_script(script: &str, path: &str) -> Result<Option<String>, CefError> {
+    if !script.is_empty() && !path.is_empty() {
+        return Err(CefError::BrowserCreationFailed(
+            "`preload_script` and `preload_script_path` cannot both be set".into(),
+        ));
+    }
+
+    if !script.is_empty() {
+        return Ok(Some(script.to_string()));
+    }
+
+    if path.is_empty() {
+        return Ok(None);
+    }
+
+    let gstring_path = GString::from(path);
+    let Some(file) = FileAccess::open(&gstring_path, ModeFlags::READ) else {
+        return Err(CefError::BrowserCreationFailed(format!(
+            "failed to open preload_script_path '{}'",
+            path
+        )));
+    };
+
+    let file_size = file.get_length();
+    if file_size > i64::MAX as u64 {
+        return Err(CefError::BrowserCreationFailed(format!(
+            "preload_script_path '{}' is too large",
+            path
+        )));
+    }
+
+    let bytes = file.get_buffer(file_size as i64);
+    String::from_utf8(bytes.to_vec()).map(Some).map_err(|err| {
+        CefError::BrowserCreationFailed(format!(
+            "preload_script_path '{}' is not valid UTF-8: {}",
+            path, err
+        ))
+    })
+}
+
+fn build_browser_extra_info(
+    preload_script: Option<&str>,
+) -> Result<cef::DictionaryValue, CefError> {
+    let Some(extra_info) = cef::dictionary_value_create() else {
+        return Err(CefError::BrowserCreationFailed(
+            "failed to create preload extra_info dictionary".into(),
+        ));
+    };
+
+    let key: CefStringUtf16 = EXTRA_INFO_PRELOAD_SCRIPT.into();
+    let value: CefStringUtf16 = preload_script.unwrap_or("").into();
+    if extra_info.set_string(Some(&key), Some(&value)) == 0 {
+        return Err(CefError::BrowserCreationFailed(
+            "failed to write preload script to extra_info".into(),
+        ));
+    }
+
+    Ok(extra_info)
 }
 
 pub(crate) fn get_max_fps() -> i32 {
@@ -386,10 +456,14 @@ pub(crate) fn try_create_browser(
         godot_protocol::register_user_scheme_handler_on_context(ctx);
     }
 
+    let preload_script =
+        resolve_preload_script(&params.preload_script, &params.preload_script_path)?;
     let create_params = BrowserCreateParams {
         dpi: params.dpi,
         pixel_width,
         pixel_height,
+        url: params.url.clone(),
+        preload_script,
         popup_policy,
         permission_policy,
         permission_request_counter,
@@ -404,7 +478,6 @@ pub(crate) fn try_create_browser(
             &browser_settings,
             context.as_mut(),
             create_params,
-            &params.url,
             params.log_prefix,
         )?;
     } else {
@@ -414,7 +487,6 @@ pub(crate) fn try_create_browser(
             context.as_mut(),
             create_params,
             params.software_target_texture.clone(),
-            &params.url,
             params.log_prefix,
         )?;
     }
@@ -483,13 +555,14 @@ fn create_software_browser(
     context: Option<&mut cef::RequestContext>,
     params: BrowserCreateParams,
     software_target_texture: Option<Gd<ImageTexture>>,
-    url: &str,
     log_prefix: &str,
 ) -> Result<(), CefError> {
     let BrowserCreateParams {
         dpi,
         pixel_width,
         pixel_height,
+        url,
+        preload_script,
         popup_policy,
         permission_policy,
         permission_request_counter,
@@ -556,13 +629,15 @@ fn create_software_browser(
         queues.clone(),
         popup_policy.clone(),
     );
+    let mut extra_info = build_browser_extra_info(preload_script.as_deref())?;
+    let cef_url: CefStringUtf16 = url.as_str().into();
 
     let browser = cef::browser_host_create_browser_sync(
         Some(&window_info),
         Some(&mut client),
-        Some(&url.into()),
+        Some(&cef_url),
         Some(browser_settings),
-        None,
+        Some(&mut extra_info),
         context,
     )
     .ok_or_else(|| {
@@ -597,7 +672,6 @@ fn create_accelerated_browser(
     browser_settings: &BrowserSettings,
     context: Option<&mut cef::RequestContext>,
     params: BrowserCreateParams,
-    url: &str,
     log_prefix: &str,
 ) -> Result<(), CefError> {
     godot::global::godot_print!(
@@ -617,7 +691,6 @@ fn create_accelerated_browser(
                 context,
                 params,
                 None,
-                url,
                 log_prefix,
             );
         }
@@ -626,6 +699,8 @@ fn create_accelerated_browser(
         dpi,
         pixel_width,
         pixel_height,
+        url,
+        preload_script,
         popup_policy,
         permission_policy,
         permission_request_counter,
@@ -670,13 +745,15 @@ fn create_accelerated_browser(
         queues.clone(),
         popup_policy.clone(),
     );
+    let mut extra_info = build_browser_extra_info(preload_script.as_deref())?;
+    let cef_url: CefStringUtf16 = url.as_str().into();
 
     let browser = match cef::browser_host_create_browser_sync(
         Some(window_info),
         Some(&mut client),
-        Some(&url.into()),
+        Some(&cef_url),
         Some(browser_settings),
-        None,
+        Some(&mut extra_info),
         context,
     ) {
         Some(browser) => browser,
@@ -715,18 +792,9 @@ fn create_accelerated_browser(
     browser_settings: &BrowserSettings,
     context: Option<&mut cef::RequestContext>,
     params: BrowserCreateParams,
-    url: &str,
     log_prefix: &str,
 ) -> Result<(), CefError> {
-    create_software_browser(
-        app,
-        browser_settings,
-        context,
-        params,
-        None,
-        url,
-        log_prefix,
-    )
+    create_software_browser(app, browser_settings, context, params, None, log_prefix)
 }
 
 #[cfg(test)]

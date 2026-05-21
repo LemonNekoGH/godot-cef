@@ -1,17 +1,19 @@
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use cef::{
-    Browser, CefStringUtf16, Domnode, Frame, ImplBinaryValue, ImplDomnode, ImplFrame,
-    ImplListValue, ImplProcessMessage, ImplRenderProcessHandler, ImplV8Context, ImplV8Value,
-    ProcessId, ProcessMessage, RenderProcessHandler, V8Context, V8Handler, V8Value,
+    Browser, CefStringUtf16, DictionaryValue, Domnode, Frame, ImplBinaryValue, ImplBrowser,
+    ImplDictionaryValue, ImplDomnode, ImplFrame, ImplListValue, ImplProcessMessage,
+    ImplRenderProcessHandler, ImplV8Context, ImplV8Exception, ImplV8Value, ProcessId,
+    ProcessMessage, RenderProcessHandler, V8Context, V8Exception, V8Handler, V8Value,
     WrapRenderProcessHandler, process_message_create, rc::Rc,
     v8_value_create_array_buffer_with_copy, v8_value_create_function, v8_value_create_string,
     wrap_render_process_handler,
 };
 
 use crate::ipc_contract::{
-    ROUTE_IPC_BINARY_GODOT_TO_RENDERER, ROUTE_IPC_DATA_GODOT_TO_RENDERER,
-    ROUTE_IPC_GODOT_TO_RENDERER, ROUTE_TRIGGER_IME,
+    EXTRA_INFO_PRELOAD_SCRIPT, ROUTE_IPC_BINARY_GODOT_TO_RENDERER,
+    ROUTE_IPC_DATA_GODOT_TO_RENDERER, ROUTE_IPC_GODOT_TO_RENDERER, ROUTE_TRIGGER_IME,
 };
 use crate::v8_handlers::{
     IpcListenerSet, OsrImeCaretHandler, OsrImeCaretHandlerBuilder, OsrIpcBinaryHandler,
@@ -31,6 +33,48 @@ fn send_browser_bool_message(frame: Option<&mut Frame>, route: &str, value: bool
         argument_list.set_bool(0, value as _);
     }
     frame.send_process_message(ProcessId::BROWSER, Some(&mut process_message));
+}
+
+// `extra_info` is only available in `on_browser_created`, while preload runs
+// later in `on_context_created`. These callbacks can arrive through different
+// Rust wrapper instances, so handler fields cannot carry preload state between
+// them. Browser identifiers remain stable across those callbacks.
+static PRELOAD_SCRIPTS: LazyLock<Mutex<HashMap<i32, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn log_preload_exception(exception: Option<V8Exception>) {
+    let Some(exception) = exception else {
+        eprintln!("[GodotCef] Preload script failed without exception details");
+        return;
+    };
+
+    let message = CefStringUtf16::from(&exception.message()).to_string();
+    let source_line = CefStringUtf16::from(&exception.source_line()).to_string();
+    eprintln!(
+        "[GodotCef] Preload script failed at line {}: {}\n{}",
+        exception.line_number(),
+        message,
+        source_line
+    );
+}
+
+fn eval_preload_script(context: &mut V8Context, script: &str) {
+    let code: CefStringUtf16 = script.into();
+    // Used in dev tools for easier debugging of preload scripts. Not a real URL.
+    let script_url: CefStringUtf16 = "godot-cef://user-preload.js".into();
+    let mut retval: Option<V8Value> = None;
+    let mut exception: Option<V8Exception> = None;
+
+    if context.eval(
+        Some(&code),
+        Some(&script_url),
+        1,
+        Some(&mut retval),
+        Some(&mut exception),
+    ) == 0
+    {
+        log_preload_exception(exception);
+    }
 }
 
 #[derive(Clone)]
@@ -56,36 +100,100 @@ wrap_render_process_handler! {
     }
 
     impl RenderProcessHandler {
-        fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
-            if let Some(context) = context {
-                let global = context.global();
-                if let Some(global) = global
-                    && let Some(frame) = frame {
-                        let frame_arc = Arc::new(Mutex::new(frame.clone()));
+        fn on_browser_created(
+            &self,
+            browser: Option<&mut Browser>,
+            extra_info: Option<&mut DictionaryValue>,
+        ) {
+            let Some(browser) = browser else {
+                return;
+            };
+            let browser_id = browser.identifier();
 
-                        register_v8_function(&global, "sendIpcMessage",
-                            &mut OsrIpcHandlerBuilder::build(OsrIpcHandler::new(Some(frame_arc.clone()))));
-                        register_v8_function(&global, "sendIpcBinaryMessage",
-                            &mut OsrIpcBinaryHandlerBuilder::build(OsrIpcBinaryHandler::new(Some(frame_arc.clone()))));
-                        register_v8_function(&global, "sendIpcData",
-                            &mut OsrIpcDataHandlerBuilder::build(OsrIpcDataHandler::new(Some(frame_arc.clone()))));
+            let key: CefStringUtf16 = EXTRA_INFO_PRELOAD_SCRIPT.into();
+            let Ok(mut preload_scripts) = PRELOAD_SCRIPTS.lock() else {
+                eprintln!("[GodotCef] preload cache lock failed in on_browser_created");
+                return;
+            };
+            preload_scripts.remove(&browser_id);
 
-                        for (name, listeners) in [
-                            ("ipcMessage", &self.handler.string_listeners),
-                            ("ipcBinaryMessage", &self.handler.binary_listeners),
-                            ("ipcDataMessage", &self.handler.data_listeners),
-                        ] {
-                            if let Some(mut obj) = listeners.build_api_object() {
-                                register_v8_value(&global, name, &mut obj);
-                            }
-                        }
+            let Some(extra_info) = extra_info else {
+                return;
+            };
+            if extra_info.has_key(Some(&key)) == 0 {
+                return;
+            }
 
-                        register_v8_function(&global, "__sendImeCaretPosition",
-                            &mut OsrImeCaretHandlerBuilder::build(OsrImeCaretHandler::new(Some(frame_arc))));
+            let script = CefStringUtf16::from(&extra_info.string(Some(&key))).to_string();
+            if script.is_empty() {
+                return;
+            }
 
-                        let helper_script: cef::CefStringUtf16 = include_str!("ime_helper.js").into();
-                        frame.execute_java_script(Some(&helper_script), None, 0);
-                    }
+            preload_scripts.insert(browser_id, script);
+        }
+
+        fn on_context_created(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
+            let Some(context) = context else {
+                return;
+            };
+            let Some(global) = context.global() else {
+                return;
+            };
+            let Some(frame) = frame else {
+                return;
+            };
+
+            let frame_arc = Arc::new(Mutex::new(frame.clone()));
+
+            register_v8_function(&global, "sendIpcMessage",
+                &mut OsrIpcHandlerBuilder::build(OsrIpcHandler::new(Some(frame_arc.clone()))));
+            register_v8_function(&global, "sendIpcBinaryMessage",
+                &mut OsrIpcBinaryHandlerBuilder::build(OsrIpcBinaryHandler::new(Some(frame_arc.clone()))));
+            register_v8_function(&global, "sendIpcData",
+                &mut OsrIpcDataHandlerBuilder::build(OsrIpcDataHandler::new(Some(frame_arc.clone()))));
+
+            for (name, listeners) in [
+                ("ipcMessage", &self.handler.string_listeners),
+                ("ipcBinaryMessage", &self.handler.binary_listeners),
+                ("ipcDataMessage", &self.handler.data_listeners),
+            ] {
+                if let Some(mut obj) = listeners.build_api_object() {
+                    register_v8_value(&global, name, &mut obj);
+                }
+            }
+
+            register_v8_function(&global, "__sendImeCaretPosition",
+                &mut OsrImeCaretHandlerBuilder::build(OsrImeCaretHandler::new(Some(frame_arc))));
+
+            let helper_script: cef::CefStringUtf16 = include_str!("ime_helper.js").into();
+            frame.execute_java_script(Some(&helper_script), None, 0);
+
+            if frame.is_main() == 0 {
+                return;
+            }
+            let Some(browser) = browser else {
+                return;
+            };
+            let browser_id = browser.identifier();
+            let preload_script = PRELOAD_SCRIPTS
+                .lock()
+                .ok()
+                .and_then(|scripts| scripts.get(&browser_id).cloned());
+            let Some(preload_script) = preload_script else {
+                return;
+            };
+
+            eval_preload_script(context, &preload_script);
+        }
+
+        fn on_browser_destroyed(&self, browser: Option<&mut Browser>) {
+            let Some(browser) = browser else {
+                return;
+            };
+            if let Ok(mut preload_scripts) = PRELOAD_SCRIPTS.lock() {
+                preload_scripts.remove(&browser.identifier());
+            } else {
+                eprintln!("[GodotCef] preload cache lock failed in on_browser_destroyed");
             }
         }
 

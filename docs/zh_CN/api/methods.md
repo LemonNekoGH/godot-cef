@@ -123,6 +123,9 @@ if cef_texture.is_loading():
 
 在浏览器主 Frame（main frame）中执行 JavaScript 代码。
 
+如果 JavaScript 必须在页面 document 加载前可用，请使用
+`preload_script` 或 `preload_script_path` 属性，而不是导航后再调用 `eval`。
+
 ```gdscript
 # Execute JavaScript
 cef_texture.eval("document.body.style.backgroundColor = 'red'")

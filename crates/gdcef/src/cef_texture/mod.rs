@@ -51,6 +51,16 @@ pub struct CefTexture {
     /// SignalOnly: emit `popup_requested` signal and let GDScript decide.
     popup_policy: i32,
 
+    #[export]
+    #[var(get = get_preload_script, set = set_preload_script)]
+    /// JavaScript source to inject into the main frame when its V8 context is created.
+    preload_script: GString,
+
+    #[export]
+    #[var(get = get_preload_script_path, set = set_preload_script_path)]
+    /// Godot file path containing JavaScript to inject as a preload script.
+    preload_script_path: GString,
+
     #[var]
     /// Stores the IME cursor position in local coordinates (relative to this `CefTexture` node),
     /// automatically updated from the browser's caret position.
@@ -95,6 +105,8 @@ impl ITextureRect for CefTexture {
             enable_accelerated_osr: true,
             background_color: Color::from_rgba(0.0, 0.0, 0.0, 0.0),
             popup_policy: crate::browser::popup_policy::BLOCK,
+            preload_script: GString::new(),
+            preload_script_path: GString::new(),
             ime_position: Vector2i::new(0, 0),
             texture2d_helper,
             last_size: Vector2::ZERO,
@@ -276,7 +288,7 @@ impl CefTexture {
     fn on_process(&mut self) {
         // Lazy browser creation: if browser doesn't exist yet (e.g., size was 0 in on_ready
         // because we're inside a Container), try to create it now that layout may be complete.
-        if self.with_app(|app| app.state.is_none()) {
+        if self.with_app(|app| app.state.is_none() && app.can_create_browser()) {
             let size = self.base().get_size();
             if size.x > 0.0 && size.y > 0.0 && !self.browser_create_deferred_pending {
                 self.browser_create_deferred_pending = true;
@@ -400,6 +412,30 @@ impl CefTexture {
     fn set_background_color(&mut self, color: Color) {
         self.background_color = color;
         self.texture2d_helper.bind_mut().set_background_color(color);
+    }
+
+    #[func]
+    fn get_preload_script(&self) -> GString {
+        self.preload_script.clone()
+    }
+
+    #[func]
+    fn set_preload_script(&mut self, script: GString) {
+        self.preload_script = script.clone();
+        self.texture2d_helper.bind_mut().set_preload_script(script);
+    }
+
+    #[func]
+    fn get_preload_script_path(&self) -> GString {
+        self.preload_script_path.clone()
+    }
+
+    #[func]
+    fn set_preload_script_path(&mut self, path: GString) {
+        self.preload_script_path = path.clone();
+        self.texture2d_helper
+            .bind_mut()
+            .set_preload_script_path(path);
     }
 
     #[func]

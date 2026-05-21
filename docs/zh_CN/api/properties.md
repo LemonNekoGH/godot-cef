@@ -17,6 +17,8 @@
 | `enable_accelerated_osr` | `bool` | `true` | 启用 GPU 加速渲染 |
 | `background_color` | `Color` | `Color(0, 0, 0, 0)` | 浏览器背景色。将 alpha 设为 0 表示透明背景，或使用实色以禁用透明效果。 |
 | `popup_policy` | `int` | `0` | 控制弹出窗口的处理方式。`0` = BLOCK（静默阻止），`1` = REDIRECT（在当前浏览器中导航到弹出 URL），`2` = SIGNAL_ONLY（触发 `popup_requested` 信号）。可在运行时更改。 |
+| `preload_script` | `String` | `""` | 在 JS Bridge 注册之后、document 加载之前，为浏览器主 Frame 执行的 JavaScript 源码。与 `preload_script_path` 互斥。 |
+| `preload_script_path` | `String` | `""` | 要预加载的 JavaScript 文件路径。支持 `res://`、`user://` 等 Godot 路径。与 `preload_script` 互斥。 |
 
 ## CefTexture2D 属性
 
@@ -26,6 +28,8 @@
 | `enable_accelerated_osr` | `bool` | `true` | 在支持的平台启用加速 OSR，否则自动回退到软件渲染。 |
 | `background_color` | `Color` | `Color(0, 0, 0, 0)` | 浏览器背景色（支持透明）。 |
 | `popup_policy` | `int` | `0` | 弹窗策略：BLOCK / REDIRECT / SIGNAL_ONLY。 |
+| `preload_script` | `String` | `""` | 在 JS Bridge 注册之后、document 加载之前，为浏览器主 Frame 执行的 JavaScript 源码。与 `preload_script_path` 互斥。 |
+| `preload_script_path` | `String` | `""` | 要预加载的 JavaScript 文件路径。支持 `res://`、`user://` 等 Godot 路径。与 `preload_script` 互斥。 |
 | `texture_size` | `Vector2i` | `Vector2i(1024, 1024)` | 浏览器纹理逻辑尺寸（像素）。 |
 
 `CefTexture2D` 的 v1 版本刻意保持为仅渲染：不包含内置的 3D 表面输入映射/射线投射路由。
@@ -47,6 +51,48 @@ var mat := StandardMaterial3D.new()
 mat.albedo_texture = browser_tex
 $MeshInstance3D.set_surface_override_material(0, mat)
 ```
+
+## Preload 脚本
+
+使用 `preload_script` 或 `preload_script_path` 可以在页面 document 加载前
+执行一段由应用提供且可信的 JavaScript。Preload 会在 Godot CEF 注册内置
+JavaScript Bridge 之后执行，因此 preload 中可以使用
+`window.sendIpcMessage(...)` 等 API。
+
+请在浏览器实例创建前设置 preload 属性。对 `CefTexture` 来说，通常是在节点
+进入场景树之前，或至少在其浏览器初始化之前设置。对 `CefTexture2D` 来说，
+请在使用该资源的场景触发浏览器初始化之前设置。如果 `CefTexture` 已经放在
+场景中，请在 Inspector 中设置这些属性。
+
+```gdscript
+func _ready() -> void:
+    var browser := CefTexture.new()
+    browser.preload_script = """
+        window.appConfig = { locale: "zh-CN" };
+        window.sendIpcMessage("preload-ready");
+    """
+    browser.url = "res://ui/index.html"
+    add_child(browser)
+```
+
+脚本较大时，可以把 JavaScript 放到文件中，然后设置
+`preload_script_path`：
+
+```gdscript
+browser.preload_script_path = "res://browser/preload.js"
+browser.url = "https://example.com"
+```
+
+`preload_script` 和 `preload_script_path` 互斥。如果两者都非空，浏览器创建
+会失败并输出错误。如果 `preload_script_path` 无法打开，或文件内容不是
+合法 UTF-8，浏览器创建也会失败。
+
+Preload 只在主 Frame 执行，不会在 iframe 中执行。
+
+::: warning 仅用于可信代码
+Preload 运行在页面的主 JavaScript world 中，适合安装应用级全局变量或接入
+IPC。它不是安全隔离边界，也不应包含不允许被页面读取的秘密信息。
+:::
 
 ## 项目设置
 

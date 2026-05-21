@@ -164,6 +164,10 @@ cef_texture.stop_finding()
 
 Executes JavaScript code in the browser's main frame.
 
+For JavaScript that must be available before the page document loads, use the
+`preload_script` or `preload_script_path` properties instead of calling `eval`
+after navigation.
+
 ```gdscript
 # Execute JavaScript
 cef_texture.eval("document.body.style.backgroundColor = 'red'")

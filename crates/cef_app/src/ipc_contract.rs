@@ -17,3 +17,5 @@ pub const ROUTE_IPC_DATA_RENDERER_TO_GODOT: &str = "ipcDataRendererToGodot";
 
 pub const ROUTE_TRIGGER_IME: &str = "triggerIme";
 pub const ROUTE_IME_CARET_POSITION: &str = "imeCaretPosition";
+
+pub const EXTRA_INFO_PRELOAD_SCRIPT: &str = "godotCefPreloadScript";
