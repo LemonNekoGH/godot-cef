@@ -76,7 +76,7 @@ impl CefTexture {
             log_prefix: "CefTexture",
         };
         if let Err(err) = self.with_app_mut(|app| backend::try_create_browser(app, &params)) {
-            self.with_app_mut(|app| app.mark_browser_failed());
+            self.with_app_mut(|app| app.mark_browser_closed());
             return Err(err);
         }
         self.with_app_mut(|app| app.mark_browser_running());

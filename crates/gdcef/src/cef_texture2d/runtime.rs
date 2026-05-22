@@ -92,7 +92,6 @@ impl CefTextureRuntime {
         if let Err(e) = backend::try_create_browser(&mut self.app, &params) {
             godot::global::godot_error!("[{}] {}", log_prefix, e);
             self.app.release_cef_if_retained();
-            self.app.mark_browser_failed();
             return;
         }
         self.last_size = logical_size;

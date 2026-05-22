@@ -559,7 +559,6 @@ pub enum LifecycleState {
     Running,
     Closing,
     Closed,
-    Failed,
 }
 
 #[derive(Default)]
@@ -616,7 +615,7 @@ impl App {
     pub fn can_create_browser(&self) -> bool {
         !matches!(
             self.lifecycle_state,
-            LifecycleState::Creating | LifecycleState::Running | LifecycleState::Failed
+            LifecycleState::Creating | LifecycleState::Running
         )
     }
 
@@ -643,10 +642,6 @@ impl App {
         } else {
             LifecycleState::Closed
         };
-    }
-
-    pub fn mark_browser_failed(&mut self) {
-        self.lifecycle_state = LifecycleState::Failed;
     }
 
     /// Releases CEF only when this instance currently owns a retain reference.
@@ -694,11 +689,6 @@ mod tests {
         assert!(app.begin_browser_create());
         assert_eq!(app.lifecycle_state(), LifecycleState::Creating);
         assert!(!app.can_create_browser());
-
-        app.mark_browser_failed();
-        assert_eq!(app.lifecycle_state(), LifecycleState::Failed);
-        assert!(!app.can_create_browser());
-        assert!(!app.begin_browser_create());
 
         app.mark_browser_closed();
         assert!(app.can_create_browser());
