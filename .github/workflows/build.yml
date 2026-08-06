@@ -30,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           cache: true
 
@@ -41,10 +41,10 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Cache Cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -55,7 +55,7 @@ jobs:
             macos-universal-cargo-
 
       - name: Cache CEF binaries (ARM64)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: cef-cache-arm64
         with:
           path: ${{ env.CEF_PATH_ARM64 }}
@@ -71,7 +71,7 @@ jobs:
           cp -R ${{ env.CEF_PATH_ARM64 }}/* ${{ env.CEF_PATH }}/
 
       - name: Cache CEF binaries (X64)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: cef-cache-x64
         with:
           path: ${{ env.CEF_PATH_X64 }}
@@ -93,7 +93,7 @@ jobs:
           cp -R "target/release/Godot CEF.framework" "artifacts/universal-apple-darwin/"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gdcef-universal-apple-darwin
           path: artifacts/universal-apple-darwin
@@ -115,7 +115,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Rust and CEF
         uses: ./.github/actions/setup-rust-cef
@@ -137,7 +137,7 @@ jobs:
           Copy-Item -Recurse addons/godot_cef/bin/${{ matrix.target }}/* artifacts/${{ matrix.target }}/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gdcef-${{ matrix.target }}
           path: artifacts/${{ matrix.target }}
@@ -157,7 +157,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Rust and CEF
         uses: ./.github/actions/setup-rust-cef
@@ -178,7 +178,7 @@ jobs:
           cp -r addons/godot_cef/bin/${{ matrix.target }}/* artifacts/${{ matrix.target }}/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gdcef-${{ matrix.target }}
           path: artifacts/${{ matrix.target }}
@@ -191,18 +191,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           cache: true
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -220,7 +220,7 @@ jobs:
           zip -r godot_cef.zip dist
 
       - name: Upload packed addon
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: godot_cef-addon
           path: godot_cef.zip
@@ -237,7 +237,7 @@ jobs:
 
     steps:
       - name: Download packed addon
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: godot_cef-addon
           path: .
@@ -246,7 +246,7 @@ jobs:
         run: mv godot_cef.zip godot_cef-${{ github.ref_name }}.zip
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Godot CEF ${{ github.ref_name }}
           draft: true # release is draft until it is manually published

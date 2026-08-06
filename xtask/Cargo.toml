@@ -10,6 +10,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 plist = { workspace = true }
 serde = { workspace = true }

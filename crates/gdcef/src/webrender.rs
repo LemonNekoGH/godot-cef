@@ -241,6 +241,7 @@ fn cef_request_to_adblock_request(
         &CefStringUtf16::from(&request.url()).to_string(),
         &CefStringUtf16::from(&request.referrer_url()).to_string(),
         cef_resource_type_to_adblock_request_type(request.resource_type()),
+        &CefStringUtf16::from(&request.method()).to_string(),
     )
 }
 
@@ -1601,7 +1602,10 @@ wrap_resource_request_handler! {
             {
                 match cef_request_to_adblock_request(request) {
                     Ok(adblock_request) => {
-                        if adblock_engine.check_network_request(&adblock_request).matched {
+                        if adblock_engine
+                            .check_network_request(&adblock_request)
+                            .should_block()
+                        {
                             return ReturnValue::CANCEL;
                         }
                     }

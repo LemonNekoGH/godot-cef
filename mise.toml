@@ -4,11 +4,11 @@
 [tools]
 # Nightly is required by retour-rs for feature(unboxed_closures, tuple_trait).
 rust = { version = "nightly", components = "rustfmt,clippy" }
-node = "24.16.0"
-pnpm = "11.3.0"
-"cargo:export-cef-dir" = "148.4.0+148.0.10"
+node = "24.19.0"
+pnpm = "11.20.0"
+"cargo:export-cef-dir" = "151.2.0+151.3.14"
 
 [env]
 # Keep this in sync with the resolved cef / cef-dll-sys version in Cargo.lock,
 # using the CEF runtime build version after the '+'.
-CEF_VERSION = "148.0.10"
+CEF_VERSION = "151.3.14"

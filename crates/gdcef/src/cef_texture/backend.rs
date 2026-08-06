@@ -87,9 +87,9 @@ fn build_adblock_engine(log_prefix: &str) -> Option<Rc<adblock::Engine>> {
     };
 
     let mut filter_set = FilterSet::new(true);
-    let _metadata = filter_set.add_filter_list(&rules, ParseOptions::default());
+    let _metadata = filter_set.add_filter_list(rules, ParseOptions::default());
     godot::global::godot_print!("[{}] Adblock filter list loaded.", log_prefix);
-    Some(Rc::new(adblock::Engine::from_filter_set(filter_set, true)))
+    Some(Rc::new(adblock::Engine::new_with_filter_set(filter_set)))
 }
 
 pub(crate) fn should_use_accelerated_osr(enable_accelerated_osr: bool, log_prefix: &str) -> bool {
