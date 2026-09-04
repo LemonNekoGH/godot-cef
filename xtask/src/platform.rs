@@ -14,12 +14,26 @@ pub struct RuntimeAssetSpec {
 }
 
 pub const MACOS_UNIVERSAL_TARGET: &str = "universal-apple-darwin";
+pub const MACOS_EXTENSION_FRAMEWORK: &str = "Godot CEF.framework";
+pub const MACOS_EXTENSION_INSTALL_NAME: &str = "@rpath/Godot CEF.framework/libgdcef.dylib";
+pub const MACOS_CEF_APP_PATH: &str = "Helpers/Godot CEF.app";
+pub const MACOS_CEF_FRAMEWORKS: &[&str] = &[
+    "Chromium Embedded Framework (ARM64).framework",
+    "Chromium Embedded Framework (X86_64).framework",
+];
+pub const MACOS_HELPERS: &[&str] = &[
+    "Godot CEF Helper (GPU)",
+    "Godot CEF Helper (Renderer)",
+    "Godot CEF Helper (Plugin)",
+    "Godot CEF Helper (Alerts)",
+    "Godot CEF Helper",
+];
 pub const WINDOWS_X64_TARGET: &str = "x86_64-pc-windows-msvc";
 pub const WINDOWS_ARM64_TARGET: &str = "aarch64-pc-windows-msvc";
 pub const LINUX_X64_TARGET: &str = "x86_64-unknown-linux-gnu";
 pub const LINUX_ARM64_TARGET: &str = "aarch64-unknown-linux-gnu";
 
-const MACOS_REQUIRED_FILES: &[&str] = &["Godot CEF.framework", "Godot CEF.app"];
+const MACOS_REQUIRED_FILES: &[&str] = &[MACOS_EXTENSION_FRAMEWORK];
 const WINDOWS_REQUIRED_FILES: &[&str] = &["gdcef.dll", "gdcef_helper.exe", "libcef.dll"];
 const LINUX_REQUIRED_FILES: &[&str] = &["libgdcef.so", "gdcef_helper", "libcef.so"];
 const LOCALES_DIR: &[&str] = &["locales"];
@@ -196,6 +210,15 @@ mod tests {
             }
             for dir in spec.required_dirs {
                 assert!(LINUX_RUNTIME_ASSETS.deploy_dirs.contains(dir));
+            }
+        }
+
+        for runtime in [WINDOWS_RUNTIME_ASSETS, LINUX_RUNTIME_ASSETS] {
+            for file in runtime.cef_files {
+                assert!(runtime.deploy_files.contains(file));
+            }
+            for dir in runtime.cef_dirs {
+                assert!(runtime.deploy_dirs.contains(dir));
             }
         }
     }

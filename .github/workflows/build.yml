@@ -86,10 +86,12 @@ jobs:
           RUSTC_WRAPPER: sccache
         run: mise exec -- cargo xtask bundle --release
 
+      - name: Validate macOS bundle
+        run: mise exec -- cargo xtask validate --addon addons/godot_cef
+
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts/universal-apple-darwin
-          cp -R "target/release/Godot CEF.app" "artifacts/universal-apple-darwin/"
           cp -R "target/release/Godot CEF.framework" "artifacts/universal-apple-darwin/"
 
       - name: Upload artifacts

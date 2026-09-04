@@ -1,6 +1,10 @@
 use crate::bundle_common::{
-    FrameworkInfoPlist, TARGET_ARM64, TARGET_X64, deploy_bundle_to_addon, get_target_dir,
-    get_target_dir_for_target, run_cargo_for_macos_targets, run_lipo,
+    FrameworkInfoPlist, TARGET_ARM64, TARGET_X64, copy_directory, deploy_bundle_to_addon,
+    get_target_dir, get_target_dir_for_target, run_cargo_for_macos_targets, run_lipo,
+    set_dylib_install_name, sign_macos_code,
+};
+use crate::platform::{
+    MACOS_CEF_APP_PATH, MACOS_EXTENSION_FRAMEWORK, MACOS_EXTENSION_INSTALL_NAME,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,29 +31,38 @@ fn create_framework(
     fmwk_path: &Path,
     lib_name: &str,
     bin: &Path,
+    cef_app: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let fmwk_path = fmwk_path.join("Godot CEF.framework");
+    let fmwk_path = fmwk_path.join(MACOS_EXTENSION_FRAMEWORK);
     if fmwk_path.exists() {
         fs::remove_dir_all(&fmwk_path)?;
     }
 
     let resources_path = create_framework_layout(&fmwk_path)?;
     create_framework_info_plist(&resources_path, lib_name)?;
-    fs::copy(bin, fmwk_path.join(lib_name))?;
+    let cef_app_path = fmwk_path.join(MACOS_CEF_APP_PATH);
+    fs::create_dir_all(cef_app_path.parent().ok_or("Invalid CEF app path")?)?;
+    copy_directory(cef_app, &cef_app_path)?;
+    let library_path = fmwk_path.join(lib_name);
+    fs::copy(bin, &library_path)?;
+    set_dylib_install_name(&library_path, MACOS_EXTENSION_INSTALL_NAME)?;
+    sign_macos_code(&fmwk_path)?;
     Ok(fmwk_path)
 }
 
 fn bundle(
     target_dir: &Path,
     universal_dylib: &Path,
+    cef_app: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let fmwk_path = create_framework(target_dir, "libgdcef.dylib", universal_dylib)?;
+    let fmwk_path = create_framework(target_dir, "libgdcef.dylib", universal_dylib, cef_app)?;
 
     println!("Created: {}", fmwk_path.display());
     Ok(fmwk_path)
 }
 
 pub fn run(release: bool, target_dir: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+    let cef_app = crate::bundle_app::build(release, target_dir)?;
     run_cargo_for_macos_targets(&["build", "--lib", "--package", "gdcef"], release)?;
 
     let target_dir_arm64 = get_target_dir_for_target(release, TARGET_ARM64, target_dir);
@@ -62,7 +75,7 @@ pub fn run(release: bool, target_dir: Option<&Path>) -> Result<(), Box<dyn std::
 
     run_lipo(&dylib_arm64, &dylib_x64, &universal_dylib)?;
 
-    let fmwk_path = bundle(&output_dir, &universal_dylib)?;
+    let fmwk_path = bundle(&output_dir, &universal_dylib, &cef_app)?;
     fs::remove_file(&universal_dylib)?;
     deploy_bundle_to_addon(&fmwk_path, PLATFORM_TARGET)?;
 

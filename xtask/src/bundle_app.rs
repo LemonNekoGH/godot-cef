@@ -1,8 +1,9 @@
 use crate::bundle_common::{
     AppInfoPlist, TARGET_ARM64, TARGET_X64, copy_directory, deploy_bundle_to_addon,
     get_cef_dir_arm64, get_cef_dir_x64, get_target_dir, get_target_dir_for_target,
-    run_cargo_for_macos_targets, run_lipo,
+    run_cargo_for_macos_targets, run_lipo, sign_macos_code,
 };
+use crate::platform::{MACOS_CEF_FRAMEWORKS, MACOS_HELPERS};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,15 +13,19 @@ const EXEC_PATH: &str = "Contents/MacOS";
 const FRAMEWORKS_PATH: &str = "Contents/Frameworks";
 const RESOURCES_PATH: &str = "Contents/Resources";
 const FRAMEWORK: &str = "Chromium Embedded Framework.framework";
-const FRAMEWORK_ARM64: &str = "Chromium Embedded Framework (ARM64).framework";
-const FRAMEWORK_X64: &str = "Chromium Embedded Framework (X86_64).framework";
-const HELPERS: &[&str] = &[
-    "Godot CEF Helper (GPU)",
-    "Godot CEF Helper (Renderer)",
-    "Godot CEF Helper (Plugin)",
-    "Godot CEF Helper (Alerts)",
-    "Godot CEF Helper",
-];
+
+fn sign_cef_framework(framework_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fs::read_dir(framework_path.join("Libraries"))? {
+        let library_path = entry?.path();
+        if library_path
+            .extension()
+            .is_some_and(|extension| extension == "dylib")
+        {
+            sign_macos_code(&library_path)?;
+        }
+    }
+    sign_macos_code(framework_path)
+}
 
 fn create_app_layout(app_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     for path in [EXEC_PATH, RESOURCES_PATH, FRAMEWORKS_PATH] {
@@ -60,36 +65,49 @@ fn bundle(
 
     let cef_path_arm64 = get_cef_dir_arm64()
         .ok_or("CEF ARM64 directory not found. Please set CEF_PATH_ARM64 environment variable.")?;
-    let to_arm64 = main_app_path.join(FRAMEWORKS_PATH).join(FRAMEWORK_ARM64);
+    let to_arm64 = main_app_path
+        .join(FRAMEWORKS_PATH)
+        .join(MACOS_CEF_FRAMEWORKS[0]);
     if to_arm64.exists() {
         fs::remove_dir_all(&to_arm64)?;
     }
     copy_directory(&cef_path_arm64.join(FRAMEWORK), &to_arm64)?;
-    println!("Copied: {}", FRAMEWORK_ARM64);
+    println!("Copied: {}", MACOS_CEF_FRAMEWORKS[0]);
 
     let cef_path_x64 = get_cef_dir_x64()
         .ok_or("CEF X64 directory not found. Please set CEF_PATH_X64 environment variable.")?;
-    let to_x64 = main_app_path.join(FRAMEWORKS_PATH).join(FRAMEWORK_X64);
+    let to_x64 = main_app_path
+        .join(FRAMEWORKS_PATH)
+        .join(MACOS_CEF_FRAMEWORKS[1]);
     if to_x64.exists() {
         fs::remove_dir_all(&to_x64)?;
     }
     copy_directory(&cef_path_x64.join(FRAMEWORK), &to_x64)?;
-    println!("Copied: {}", FRAMEWORK_X64);
+    println!("Copied: {}", MACOS_CEF_FRAMEWORKS[1]);
 
-    for helper in HELPERS {
-        create_app(
+    sign_cef_framework(&to_arm64)?;
+    sign_cef_framework(&to_x64)?;
+
+    for helper in MACOS_HELPERS {
+        let helper_path = create_app(
             &main_app_path.join(FRAMEWORKS_PATH),
             helper,
             universal_helper,
             true,
         )?;
+        sign_macos_code(&helper_path)?;
     }
+
+    sign_macos_code(&main_app_path)?;
 
     println!("Created: {}", main_app_path.display());
     Ok(main_app_path)
 }
 
-pub fn run(release: bool, target_dir: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn build(
+    release: bool,
+    target_dir: Option<&Path>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     run_cargo_for_macos_targets(&["build", "--bin", "gdcef_helper"], release)?;
 
     let target_dir_arm64 = get_target_dir_for_target(release, TARGET_ARM64, target_dir);
@@ -104,6 +122,11 @@ pub fn run(release: bool, target_dir: Option<&Path>) -> Result<(), Box<dyn std::
 
     let app_path = bundle(&output_dir, &universal_helper)?;
     fs::remove_file(&universal_helper)?;
+    Ok(app_path)
+}
+
+pub fn run(release: bool, target_dir: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+    let app_path = build(release, target_dir)?;
     deploy_bundle_to_addon(&app_path, PLATFORM_TARGET)?;
 
     Ok(())

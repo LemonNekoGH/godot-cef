@@ -222,10 +222,9 @@ pub fn get_framework_path() -> CefResult<PathBuf> {
     // current dylib path:
     //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.framework/libgdcef.dylib
     // framework is at:
-    //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.app/Contents/Frameworks/Chromium Embedded Framework (ARM64|X86_64).framework
+    //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.framework/Helpers/Godot CEF.app/Contents/Frameworks/Chromium Embedded Framework (ARM64|X86_64).framework
     dylib_dir
-        .join("..")
-        .join("Godot CEF.app/Contents/Frameworks")
+        .join("Helpers/Godot CEF.app/Contents/Frameworks")
         .join(framework_name)
         .canonicalize()
         .map_err(CefError::from)
@@ -238,10 +237,9 @@ pub fn get_subprocess_path() -> CefResult<PathBuf> {
     // current dylib path:
     //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.framework/libgdcef.dylib
     // subprocess is at:
-    //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.app/Contents/Frameworks/Godot CEF Helper.app/Contents/MacOS/Godot CEF Helper
+    //   project/addons/godot_cef/bin/universal-apple-darwin/Godot CEF.framework/Helpers/Godot CEF.app/Contents/Frameworks/Godot CEF Helper.app/Contents/MacOS/Godot CEF Helper
     dylib_dir
-        .join("..")
-        .join("Godot CEF.app/Contents/Frameworks")
+        .join("Helpers/Godot CEF.app/Contents/Frameworks")
         .join("Godot CEF Helper.app/Contents/MacOS")
         .join("Godot CEF Helper")
         .canonicalize()

@@ -114,7 +114,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "--target is not supported for `cargo xtask bundle` on macOS".into(),
                     );
                 }
-                bundle_app::run(release, target_dir.as_deref())?;
                 bundle_framework::run(release, target_dir.as_deref())?;
             }
 
