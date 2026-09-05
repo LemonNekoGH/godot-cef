@@ -36,8 +36,6 @@ pub struct AppInfoPlist {
     pub cf_bundle_version: String,
     #[serde(rename = "CFBundleShortVersionString")]
     pub cf_bundle_short_version_string: String,
-    #[serde(rename = "CFBundleSupportedPlatforms")]
-    pub cf_bundle_supported_platforms: Vec<String>,
     #[serde(rename = "LSEnvironment")]
     pub ls_environment: HashMap<String, String>,
     #[serde(rename = "LSFileQuarantineEnabled")]
@@ -107,7 +105,6 @@ impl AppInfoPlist {
             cf_bundle_signature: "????".to_string(),
             cf_bundle_version: "1.0.0".to_string(),
             cf_bundle_short_version_string: "1.0".to_string(),
-            cf_bundle_supported_platforms: vec!["MacOSX".to_string()],
             ls_environment: [("MallocNanoZone".to_string(), "0".to_string())]
                 .iter()
                 .cloned()
@@ -297,29 +294,6 @@ pub fn run_lipo(
 
     if !status.success() {
         return Err(format!("lipo failed with status: {}", status).into());
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-pub fn set_dylib_install_name(
-    dylib: &Path,
-    install_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let status = Command::new("install_name_tool")
-        .args(["-id", install_name])
-        .arg(dylib)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()?;
-
-    if !status.success() {
-        return Err(format!(
-            "install_name_tool failed for {} with status: {}",
-            dylib.display(),
-            status
-        )
-        .into());
     }
     Ok(())
 }

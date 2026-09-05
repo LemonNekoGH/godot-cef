@@ -17,10 +17,9 @@ pub const MACOS_UNIVERSAL_TARGET: &str = "universal-apple-darwin";
 pub const MACOS_EXTENSION_FRAMEWORK: &str = "Godot CEF.framework";
 pub const MACOS_EXTENSION_INSTALL_NAME: &str = "@rpath/Godot CEF.framework/libgdcef.dylib";
 pub const MACOS_CEF_APP_PATH: &str = "Helpers/Godot CEF.app";
-pub const MACOS_CEF_FRAMEWORKS: &[&str] = &[
-    "Chromium Embedded Framework (ARM64).framework",
-    "Chromium Embedded Framework (X86_64).framework",
-];
+pub const MACOS_CEF_FRAMEWORK_ARM64: &str = "Chromium Embedded Framework (ARM64).framework";
+pub const MACOS_CEF_FRAMEWORK_X64: &str = "Chromium Embedded Framework (X86_64).framework";
+pub const MACOS_CEF_FRAMEWORKS: &[&str] = &[MACOS_CEF_FRAMEWORK_ARM64, MACOS_CEF_FRAMEWORK_X64];
 pub const MACOS_HELPERS: &[&str] = &[
     "Godot CEF Helper (GPU)",
     "Godot CEF Helper (Renderer)",

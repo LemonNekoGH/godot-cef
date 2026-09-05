@@ -33,7 +33,7 @@ fn validate_bundle_executable(
     plist_path: &Path,
     executable_dir: &Path,
     package_type: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Dictionary, Box<dyn std::error::Error>> {
     let plist = load_bundle_plist(plist_path)?;
     let actual_package_type = required_plist_string(&plist, "CFBundlePackageType", plist_path)?;
     if actual_package_type != package_type {
@@ -56,33 +56,40 @@ fn validate_bundle_executable(
         )
         .into());
     }
-    Ok(())
+    Ok(plist)
 }
 
-fn validate_framework(
-    framework_path: &Path,
-    require_godot_export_metadata: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_framework(framework_path: &Path) -> Result<Dictionary, Box<dyn std::error::Error>> {
     let plist_path = framework_path.join("Resources/Info.plist");
-    validate_bundle_executable(framework_path, &plist_path, Path::new(""), "FMWK")?;
+    validate_bundle_executable(framework_path, &plist_path, Path::new(""), "FMWK")
+}
 
-    if require_godot_export_metadata {
-        let plist = load_bundle_plist(&plist_path)?;
-        let supports_macos = plist
-            .get("CFBundleSupportedPlatforms")
-            .and_then(Value::as_array)
-            .is_some_and(|platforms| {
-                platforms
-                    .iter()
-                    .any(|platform| platform.as_string() == Some("MacOSX"))
-            });
-        if !supports_macos {
-            return Err(format!(
-                "{} must include MacOSX in CFBundleSupportedPlatforms",
-                plist_path.display()
-            )
-            .into());
-        }
+fn validate_godot_framework(framework_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let plist_path = framework_path.join("Resources/Info.plist");
+    let plist = validate_framework(framework_path)?;
+
+    for key in [
+        "CFBundleIdentifier",
+        "CFBundleInfoDictionaryVersion",
+        "CFBundleName",
+    ] {
+        required_plist_string(&plist, key, &plist_path)?;
+    }
+
+    let supports_macos = plist
+        .get("CFBundleSupportedPlatforms")
+        .and_then(Value::as_array)
+        .is_some_and(|platforms| {
+            platforms
+                .iter()
+                .any(|platform| platform.as_string() == Some("MacOSX"))
+        });
+    if !supports_macos {
+        return Err(format!(
+            "{} must include MacOSX in CFBundleSupportedPlatforms",
+            plist_path.display()
+        )
+        .into());
     }
     Ok(())
 }
@@ -93,19 +100,20 @@ fn validate_app(app_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         &app_path.join("Contents/Info.plist"),
         Path::new("Contents/MacOS"),
         "APPL",
-    )
+    )?;
+    Ok(())
 }
 
 fn validate_macos_bundle_structure(platform_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let extension_framework = platform_dir.join(MACOS_EXTENSION_FRAMEWORK);
-    validate_framework(&extension_framework, true)?;
+    validate_godot_framework(&extension_framework)?;
 
     let cef_app = extension_framework.join(MACOS_CEF_APP_PATH);
     validate_app(&cef_app)?;
     let nested_frameworks_dir = cef_app.join("Contents/Frameworks");
 
     for framework in MACOS_CEF_FRAMEWORKS {
-        validate_framework(&nested_frameworks_dir.join(framework), false)?;
+        validate_framework(&nested_frameworks_dir.join(framework))?;
     }
 
     for helper in MACOS_HELPERS {
@@ -135,28 +143,26 @@ fn verify_code_signature(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
 #[cfg(target_os = "macos")]
 fn validate_install_name(framework_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let library_path = framework_path.join("libgdcef.dylib");
-    let output = Command::new("otool")
-        .arg("-D")
-        .arg(&library_path)
-        .output()?;
-    if !output.status.success() {
-        return Err(format!("otool failed for {}", library_path.display()).into());
+    for architecture in ["arm64", "x86_64"] {
+        let output = Command::new("otool")
+            .args(["-arch", architecture, "-D"])
+            .arg(&library_path)
+            .output()?;
+        let has_relocatable_id = output.status.success()
+            && String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == MACOS_EXTENSION_INSTALL_NAME);
+        if !has_relocatable_id {
+            return Err(format!(
+                "{} does not use relocatable install name {} for {}",
+                library_path.display(),
+                MACOS_EXTENSION_INSTALL_NAME,
+                architecture
+            )
+            .into());
+        }
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout
-        .lines()
-        .any(|line| line.trim() == MACOS_EXTENSION_INSTALL_NAME)
-    {
-        return Ok(());
-    }
-
-    Err(format!(
-        "{} does not use relocatable install name {}",
-        library_path.display(),
-        MACOS_EXTENSION_INSTALL_NAME
-    )
-    .into())
+    Ok(())
 }
 
 fn validate_macos(platform_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -166,8 +172,23 @@ fn validate_macos(platform_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
     {
         let extension_framework = platform_dir.join(MACOS_EXTENSION_FRAMEWORK);
         validate_install_name(&extension_framework)?;
+
+        let cef_frameworks_dir = extension_framework
+            .join(MACOS_CEF_APP_PATH)
+            .join("Contents/Frameworks");
+        for framework in MACOS_CEF_FRAMEWORKS {
+            for entry in std::fs::read_dir(cef_frameworks_dir.join(framework).join("Libraries"))? {
+                let library_path = entry?.path();
+                if library_path
+                    .extension()
+                    .is_some_and(|extension| extension == "dylib")
+                {
+                    verify_code_signature(&library_path)?;
+                }
+            }
+        }
+
         verify_code_signature(&extension_framework)?;
-        verify_code_signature(&extension_framework.join(MACOS_CEF_APP_PATH))?;
     }
     Ok(())
 }
@@ -218,96 +239,78 @@ pub fn run(addon_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct TestDir(PathBuf);
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_nanos());
-            let path = std::env::temp_dir()
-                .join(format!("godot-cef-{name}-{}-{nonce}", std::process::id()));
-            assert!(fs::create_dir_all(&path).is_ok());
-            Self(path)
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            if let Err(error) = fs::remove_dir_all(&self.0) {
-                eprintln!(
-                    "failed to remove test directory {}: {error}",
-                    self.0.display()
-                );
-            }
-        }
-    }
-
-    fn write_framework_plist(
+    fn write_framework(
         framework_path: &Path,
-        executable: &str,
-        supported_platforms: Option<Vec<&str>>,
+        plist: &Dictionary,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let resources_path = framework_path.join("Resources");
         fs::create_dir_all(&resources_path)?;
+        plist::to_file_xml(resources_path.join("Info.plist"), plist)?;
+        fs::write(framework_path.join("libgdcef.dylib"), [])?;
+        Ok(())
+    }
 
-        let mut plist = Dictionary::new();
+    #[test]
+    fn godot_framework_validation_rejects_export_incompatible_plists()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let test_dir = std::env::temp_dir().join(format!(
+            "godot-cef-framework-validation-{}-{nonce}",
+            std::process::id()
+        ));
+
+        let mut valid_plist = Dictionary::new();
+        for (key, value) in [
+            ("CFBundleExecutable", "libgdcef.dylib"),
+            ("CFBundleIdentifier", "me.delton.gdcef.libgdcef"),
+            ("CFBundleInfoDictionaryVersion", "6.0"),
+            ("CFBundleName", "gdcef"),
+            ("CFBundlePackageType", "FMWK"),
+        ] {
+            valid_plist.insert(key.to_string(), Value::String(value.to_string()));
+        }
+        valid_plist.insert(
+            "CFBundleSupportedPlatforms".to_string(),
+            Value::Array(vec![Value::String("MacOSX".to_string())]),
+        );
+
+        let framework_path = test_dir.join("valid").join("Godot CEF.framework");
+        write_framework(&framework_path, &valid_plist)?;
+        validate_godot_framework(&framework_path)?;
+
+        for missing_key in [
+            "CFBundleExecutable",
+            "CFBundleIdentifier",
+            "CFBundleInfoDictionaryVersion",
+            "CFBundleName",
+            "CFBundlePackageType",
+            "CFBundleSupportedPlatforms",
+        ] {
+            let framework_path = test_dir.join(missing_key).join("Godot CEF.framework");
+            let mut plist = valid_plist.clone();
+            plist.remove(missing_key);
+            write_framework(&framework_path, &plist)?;
+            if validate_godot_framework(&framework_path).is_ok() {
+                return Err(format!("framework without {missing_key} passed validation").into());
+            }
+        }
+
+        let framework_path = test_dir
+            .join("wrong-executable")
+            .join("Godot CEF.framework");
+        let mut plist = valid_plist;
         plist.insert(
             "CFBundleExecutable".to_string(),
-            Value::String(executable.to_string()),
+            Value::String("Godot CEF".to_string()),
         );
-        plist.insert(
-            "CFBundlePackageType".to_string(),
-            Value::String("FMWK".to_string()),
-        );
-        if let Some(platforms) = supported_platforms {
-            plist.insert(
-                "CFBundleSupportedPlatforms".to_string(),
-                Value::Array(
-                    platforms
-                        .into_iter()
-                        .map(|platform| Value::String(platform.to_string()))
-                        .collect(),
-                ),
-            );
+        write_framework(&framework_path, &plist)?;
+        if validate_godot_framework(&framework_path).is_ok() {
+            return Err("framework with a missing declared executable passed validation".into());
         }
-        plist::to_file_xml(resources_path.join("Info.plist"), &plist)?;
-        Ok(())
-    }
 
-    #[test]
-    fn framework_validation_rejects_missing_supported_platform()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let test_dir = TestDir::new("missing-platform");
-        let framework_path = test_dir.0.join("Godot CEF.framework");
-        write_framework_plist(&framework_path, "libgdcef.dylib", None)?;
-        fs::write(framework_path.join("libgdcef.dylib"), [])?;
-
-        let Err(error) = validate_framework(&framework_path, true) else {
-            return Err("Godot-incompatible framework plist should fail".into());
-        };
-        if !error.to_string().contains("CFBundleSupportedPlatforms") {
-            return Err(format!("unexpected validation error: {error}").into());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn framework_validation_rejects_missing_declared_executable()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let test_dir = TestDir::new("missing-executable");
-        let framework_path = test_dir.0.join("Godot CEF.framework");
-        write_framework_plist(&framework_path, "Godot CEF", Some(vec!["MacOSX"]))?;
-
-        let Err(error) = validate_framework(&framework_path, true) else {
-            return Err("framework with a missing executable should fail".into());
-        };
-        if !error.to_string().contains("declares missing executable") {
-            return Err(format!("unexpected validation error: {error}").into());
-        }
+        fs::remove_dir_all(test_dir)?;
         Ok(())
     }
 }
