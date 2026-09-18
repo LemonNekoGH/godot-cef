@@ -242,6 +242,9 @@ fn initialize_cef() -> CefResult<()> {
     }
 
     let root_cache_path = settings::get_data_path();
+    let cache_path = root_cache_path.to_str().ok_or_else(|| {
+        CefError::InitializationFailed("cache path is not valid UTF-8".to_string())
+    })?;
 
     let settings = Settings {
         browser_subprocess_path: subprocess_path
@@ -254,12 +257,8 @@ fn initialize_cef() -> CefResult<()> {
         external_message_pump: true as _,
         log_severity: cef::LogSeverity::DEFAULT as _,
         no_sandbox: true as _,
-        root_cache_path: root_cache_path
-            .to_str()
-            .ok_or_else(|| {
-                CefError::InitializationFailed("cache path is not valid UTF-8".to_string())
-            })?
-            .into(),
+        cache_path: cache_path.into(),
+        root_cache_path: cache_path.into(),
         ..Default::default()
     };
 
