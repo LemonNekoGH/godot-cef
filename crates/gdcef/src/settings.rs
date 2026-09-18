@@ -242,10 +242,6 @@ pub fn get_data_path() -> PathBuf {
     PathBuf::from(absolute_path)
 }
 
-pub fn get_cache_path() -> PathBuf {
-    get_data_path().join("cache")
-}
-
 pub fn get_security_config() -> SecurityConfig {
     SecurityConfig {
         allow_insecure_content: get_setting_or(
