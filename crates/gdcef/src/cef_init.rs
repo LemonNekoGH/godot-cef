@@ -242,7 +242,11 @@ fn initialize_cef() -> CefResult<()> {
     }
 
     let root_cache_path = settings::get_data_path();
-    let cache_path = root_cache_path.to_str().ok_or_else(|| {
+    let root_cache_path = root_cache_path.to_str().ok_or_else(|| {
+        CefError::InitializationFailed("root cache path is not valid UTF-8".to_string())
+    })?;
+    let cache_path = settings::get_cache_path();
+    let cache_path = cache_path.to_str().ok_or_else(|| {
         CefError::InitializationFailed("cache path is not valid UTF-8".to_string())
     })?;
 
@@ -258,7 +262,7 @@ fn initialize_cef() -> CefResult<()> {
         log_severity: cef::LogSeverity::DEFAULT as _,
         no_sandbox: true as _,
         cache_path: cache_path.into(),
-        root_cache_path: cache_path.into(),
+        root_cache_path: root_cache_path.into(),
         ..Default::default()
     };
 

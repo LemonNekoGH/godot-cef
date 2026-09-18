@@ -110,7 +110,7 @@ fn shared_request_context(log_prefix: &str) -> Result<cef::RequestContext, CefEr
         return Ok(context.clone());
     }
 
-    let cache_path = crate::settings::get_data_path();
+    let cache_path = crate::settings::get_cache_path();
     let cache_path = cache_path.to_str().ok_or_else(|| {
         CefError::BrowserCreationFailed("cache path is not valid UTF-8".to_string())
     })?;
